@@ -48,27 +48,33 @@ class ConsoleSink:
         if event.event_type == EventType.STEP_EXECUTED:
             payload: StepExecutedPayload = event.payload
             outcome_color = "green" if payload.outcome == "success" else "red"
+            outcome_upper = payload.outcome.upper()
             action_str = colored(payload.action, "cyan")
-            message = f"{action_str} - {payload.outcome}"
+            message = f"[{outcome_upper}] {action_str}"
             if payload.params:
-                # Simplify params for display
-                params_str = ", ".join(f"{k}={v}" for k, v in payload.params.items() if k != "screenshot_base64")
+                # Simplify params for display and remove None values
+                params_str = ", ".join(
+                    f"{k}={v}" 
+                    for k, v in payload.params.items() 
+                    if k != "screenshot_base64" and v is not None
+                )
                 if len(params_str) > 50:
                     params_str = params_str[:47] + "..."
-                message += f" ({params_str})"
+                if params_str:
+                    message += f" ({params_str})"
             message = colored(message, outcome_color)
             
         elif event.event_type == EventType.VALIDATION:
             payload: ValidationPayload = event.payload
             status = colored("PASS", "green") if payload.passed else colored("FAIL", "red")
-            message = f"Validation [{payload.check_type}]: {payload.description} -> {status}"
+            message = f"[{status}] Validation [{payload.check_type}]: {payload.description}"
             if not payload.passed:
                 message += f" (Expected: {payload.expected}, Actual: {payload.actual})"
                 
         elif event.event_type == EventType.VERDICT:
             payload: VerdictPayload = event.payload
             status = colored("PASSED", "green", attrs=["bold"]) if payload.passed else colored("FAILED", "red", attrs=["bold"])
-            message = f"Test Verdict: {status}"
+            message = f"[{status}] Test Verdict"
             if payload.reasons:
                 message += f"\n  Reasons: {', '.join(payload.reasons)}"
                 
@@ -89,7 +95,7 @@ class ConsoleSink:
         elif event.event_type == EventType.TEST_END:
             payload: TestEndPayload = event.payload
             color = "green" if payload.status == "PASS" else "red"
-            message = colored(f"Finished Test: {payload.status} in {payload.duration_ms/1000:.2f}s", color, attrs=["bold"])
+            message = colored(f"[{payload.status}] Finished Test in {payload.duration_ms/1000:.2f}s", color, attrs=["bold"])
             
         elif event.event_type == EventType.SUITE_START:
             message = colored("=== Schwifly Test Suite Started ===", "white", attrs=["bold", "underline"])

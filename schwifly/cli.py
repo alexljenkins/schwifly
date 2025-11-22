@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -130,31 +131,46 @@ def run(
     # Run tests in parallel with semaphore
     semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_TESTS)
     
-    async def run_test_with_semaphore(test):
+    async def run_test_with_semaphore(test, test_index):
         test_id = test.get("test_id", "unknown")
         async with semaphore:
-            console.print(f"Starting [bold cyan]{test_id}[/bold cyan]...")
+            # Standardized start message with timestamp
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            console.print(f"[{timestamp}] [{test_id}] Starting...")
+            
             try:
                 report = await run_single_test(test, headless)
+                
+                passed_validations = 0
+                total_validations = 0
+                
+                if report and report.rule_evaluation and report.rule_evaluation.rule_results:
+                    total_validations = len(report.rule_evaluation.rule_results)
+                    passed_validations = sum(1 for rr in report.rule_evaluation.rule_results if rr.passed)
                 
                 if report and report.verdict.passed:
                     console.print(f"[bold cyan]{test_id}[/bold cyan] [green]✔ PASS[/green]")
                     # Show rule details if available even on pass
                     if report.rule_evaluation and report.rule_evaluation.rule_results:
-                        for rr in report.rule_evaluation.rule_results:
+                        for i, rr in enumerate(report.rule_evaluation.rule_results, 1):
                             status_icon = "✔" if rr.passed else "✘"
                             status_color = "green" if rr.passed else "red"
-                            console.print(f"  [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
-                    return {"id": test_id, "status": "PASS", "duration": report.duration_sec}
+                            console.print(f"  {test_index}.{i} [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
+                    return {
+                        "id": test_id, 
+                        "status": "PASS", 
+                        "duration": report.duration_sec,
+                        "validations": f"{passed_validations}/{total_validations}"
+                    }
                 else:
                     console.print(f"[bold cyan]{test_id}[/bold cyan] [red]✘ FAIL[/red]")
                     
                     # Show rule details
                     if report and report.rule_evaluation and report.rule_evaluation.rule_results:
-                        for rr in report.rule_evaluation.rule_results:
+                        for i, rr in enumerate(report.rule_evaluation.rule_results, 1):
                             status_icon = "✔" if rr.passed else "✘"
                             status_color = "green" if rr.passed else "red"
-                            console.print(f"  [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
+                            console.print(f"  {test_index}.{i} [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
                             if not rr.passed and rr.reason:
                                 console.print(f"    [red]Reason: {rr.reason}[/red]")
                     
@@ -164,14 +180,24 @@ def run(
                         for reason in report.verdict.reasons:
                             console.print(f"  [red]- {reason}[/red]")
                             
-                    return {"id": test_id, "status": "FAIL", "duration": report.duration_sec if report else 0}
+                    return {
+                        "id": test_id, 
+                        "status": "FAIL", 
+                        "duration": report.duration_sec if report else 0,
+                        "validations": f"{passed_validations}/{total_validations}"
+                    }
             except Exception as e:
                 console.print(f"[bold cyan]{test_id}[/bold cyan] [red]✘ ERROR[/red]")
                 console.print(f"  [red]{str(e)}[/red]")
-                return {"id": test_id, "status": "ERROR", "duration": 0}
+                return {
+                    "id": test_id, 
+                    "status": "ERROR", 
+                    "duration": 0,
+                    "validations": "0/0"
+                }
 
     async def run_all_tests():
-        tasks = [run_test_with_semaphore(test) for test in tests_to_run]
+        tasks = [run_test_with_semaphore(test, i) for i, test in enumerate(tests_to_run, 1)]
         return await asyncio.gather(*tasks)
 
     results = asyncio.run(run_all_tests())
@@ -181,12 +207,18 @@ def run(
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Test ID")
     table.add_column("Status")
+    table.add_column("Validations")
     table.add_column("Duration (s)", justify="right")
 
     passed_count = 0
     for res in results:
         status_style = "green" if res["status"] == "PASS" else "red"
-        table.add_row(res["id"], f"[{status_style}]{res['status']}[/{status_style}]", f"{res['duration']:.2f}")
+        table.add_row(
+            res["id"], 
+            f"[{status_style}]{res['status']}[/{status_style}]", 
+            res.get("validations", "N/A"),
+            f"{res['duration']:.2f}"
+        )
         if res["status"] == "PASS":
             passed_count += 1
 
