@@ -1,136 +1,130 @@
 from typing import Dict, Any, List, Optional, Union, Literal
 from datetime import datetime
 from enum import Enum
+import uuid
 from pydantic import BaseModel, Field
 
+# --- Enums ---
+
+class StepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
 
 class EventType(str, Enum):
     SUITE_START = "suite_start"
     SUITE_END = "suite_end"
     TEST_START = "test_start"
     TEST_END = "test_end"
-    STEP_EXECUTED = "step_executed"
+    STEP_START = "step_start"
+    STEP_END = "step_end"
     VALIDATION = "validation"
     VERDICT = "verdict"
     ERROR = "error"
     INFO = "info"
 
-
-class StepExecutedPayload(BaseModel):
-    action: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-    duration_ms: float
-    outcome: Literal["success", "failure"]
-    error: Optional[str] = None
-    screenshot_path: Optional[str] = None
-
-
-class ValidationPayload(BaseModel):
-    check_type: Literal["content", "url", "process", "performance"]
-    description: str
-    expected: Any
-    actual: Any
-    passed: bool
-
-
-class VerdictPayload(BaseModel):
-    passed: bool
-    reasons: List[str]
-
-
-class ErrorPayload(BaseModel):
-    message: str
-    stack_trace: Optional[str] = None
-
-
-class InfoPayload(BaseModel):
-    message: str
-    data: Optional[Dict[str, Any]] = None
-
-
-class TestStartPayload(BaseModel):
-    test_id: str
-    start_url: str
-    process_description: str
-
-
-class TestEndPayload(BaseModel):
-    test_id: str
-    status: Literal["PASS", "FAIL"]
-    duration_ms: float
-
-
-LogEventPayload = Union[
-    StepExecutedPayload,
-    ValidationPayload,
-    VerdictPayload,
-    ErrorPayload,
-    InfoPayload,
-    TestStartPayload,
-    TestEndPayload,
-    Dict[str, Any]  # Fallback
-]
-
-
-class LogEvent(BaseModel):
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
-    run_id: str
-    test_id: Optional[str] = None
-    event_type: EventType
-    payload: LogEventPayload
-
-
-# --- Legacy / Existing Models (kept for compatibility during refactor) ---
-
-class StepTrace(BaseModel):
-    index: int
-    action: str
-    target: Optional[str] = None
-    locator: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    timestamp: str
-    duration_ms: float
-    outcome: str
-    error: Optional[str] = None
-
-
-class ExecutableStep(BaseModel):
-    """Standardized step structure for direct replay without AI."""
-    action: Literal["navigate", "click", "type", "select", "wait", "scroll", "screenshot", "fill_form", "press_key"]
-    selector: Optional[str] = None
-    selector_type: Optional[Literal["css", "xpath", "text", "id", "name", "placeholder"]] = None
-    value: Optional[str] = None
-    wait_for: Optional[Literal["element", "url_change", "navigation", "timeout"]] = None
-    wait_selector: Optional[str] = None
-    wait_timeout_ms: int = 5000
-    retry_count: int = 0
-    index: int
-    description: Optional[str] = None
-
+# --- Core Domain Models ---
 
 class RuleResult(BaseModel):
     rule: str
     passed: bool
     reason: Optional[str] = None
 
-
-class RuleEvaluation(BaseModel):
-    passed: bool
-    reasons: List[str]
-    rule_results: List[RuleResult] = []
-
-
-class StepDiff(BaseModel):
-    changed: int = 0
-    added: int = 0
-    removed: int = 0
-    details: List[str] = []
-
+class Step(BaseModel):
+    """
+    Unified Step model representing a unit of work in a test.
+    Holds both the plan (action/params) and the execution result.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    index: int
+    action: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    description: Optional[str] = None
+    
+    # Execution State
+    status: StepStatus = StepStatus.PENDING
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_ms: float = 0.0
+    error: Optional[str] = None
+    output: Dict[str, Any] = Field(default_factory=dict) # e.g. screenshot_path, extracted_data
+    
+    # Validation
+    validation_results: List[RuleResult] = []
 
 class Verdict(BaseModel):
     passed: bool
     reasons: List[str]
 
+class TestResult(BaseModel):
+    """
+    Final result of a test execution.
+    """
+    test_id: str
+    run_id: str
+    status: Literal["PASS", "FAIL", "ERROR"]
+    duration_sec: float
+    steps: List[Step] = []
+    verdict: Verdict
+    artifacts: Dict[str, str] = {} # path_name -> file_path
+    metadata: Dict[str, Any] = {}
+
+# --- Configuration Models ---
+
+class ProceduralConfig(BaseModel):
+    use: bool
+    update: Literal["always", "never", "ai_success", "changes"]
+    validate_against: Optional[Literal["outcome", "exact_process"]] = None
+
+class TestConfig(BaseModel):
+    test_id: str
+    process: Union[str, Dict[str, Any]]
+    validation: Union[str, List[str], Dict[str, Any]]
+    starting_url: str
+    procedural: ProceduralConfig
+    env: Optional[str] = None
+    creds_override: Optional[Dict[str, Any]] = None
+    auth: Optional[str] = None
+    headless: Optional[bool] = None
+
+# --- Telemetry / Event Models ---
+
+class LogEvent(BaseModel):
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    run_id: str
+    test_id: Optional[str] = None
+    event_type: EventType
+    payload: Dict[str, Any]
+
+# --- Legacy Compatibility (Temporary) ---
+# Keeping these briefly to allow incremental refactor of runner.py, 
+# but they should be removed ASAP.
+
+class StepTrace(BaseModel):
+    index: int
+    action: str
+    data: Optional[Dict[str, Any]] = None
+    timestamp: str
+    duration_ms: float
+    outcome: str
+    error: Optional[str] = None
+
+class ExecutableStep(BaseModel):
+    action: str
+    selector: Optional[str] = None
+    value: Optional[str] = None
+    index: int
+    description: Optional[str] = None
+    # Helper to convert to new Step
+    def to_step(self) -> Step:
+        return Step(
+            index=self.index,
+            action=self.action,
+            params={"selector": self.selector, "value": self.value},
+            description=self.description
+        )
 
 class AgentOutput(BaseModel):
     """Structured output from the agent."""
@@ -140,91 +134,3 @@ class AgentOutput(BaseModel):
     usability_score: int = 10
     redundant_steps: List[str] = []
     summary: str
-
-
-class Artifacts(BaseModel):
-    report_path: str
-    logs_path: str
-    screenshots_path: str
-
-
-class ProceduralConfig(BaseModel):
-    use: bool
-    update: Literal["always", "never", "ai_success", "changes"]
-    validate_against: Optional[Literal["outcome", "exact_process"]] = None
-
-
-class TestInputs(BaseModel):
-    process: Union[str, Dict[str, Any]]
-    validation: Union[str, List[str], Dict[str, Any]]
-    starting_url: str
-    procedural: ProceduralConfig
-    env: Optional[str] = None
-    creds_override: Optional[Dict[str, Any]] = None
-    auth: Optional[str] = None
-
-
-class Report(BaseModel):
-    run_id: str
-    test_id: Optional[str] = None
-    inputs: TestInputs
-    agent_config: Dict[str, Any]
-    started_at: str
-    finished_at: str
-    duration_sec: float
-    step_trace: List[StepTrace]
-    executable_steps: Optional[List[ExecutableStep]] = None
-    rule_evaluation: RuleEvaluation
-    step_diff: StepDiff
-    previous_run_used: bool = False
-    replay_used: bool = False
-    replay_successful: Optional[bool] = None
-    execution_method: Literal["replay", "ai"] = "ai"
-    verdict: Verdict
-    artifacts: Artifacts
-    usability_score: Optional[int] = None
-    redundant_steps: List[str] = []
-    errors: List[str] = []
-    redactions: List[str] = []
-
-
-class RunTestRequest(BaseModel):
-    test_id: str
-    process: Union[str, Dict[str, Any]]
-    validation: Union[str, List[str], Dict[str, Any]]
-    starting_url: str
-    procedural: ProceduralConfig
-    env: Optional[str] = None
-    creds_override: Optional[Dict[str, Any]] = None
-    auth: Optional[str] = None
-    headless: Optional[bool] = None
-
-
-class RunTestResponse(BaseModel):
-    status: str
-    passed: bool
-    duration: float
-    report_path: str
-    report_json: Optional[Report] = None
-    previous_run_used: bool
-    diff_summary: StepDiff
-
-
-class BulkTestItem(BaseModel):
-    test_id: str
-    process: Union[str, Dict[str, Any]]
-    validation: Union[str, List[str], Dict[str, Any]]
-    starting_url: str
-    procedural: ProceduralConfig
-    env: Optional[str] = None
-    creds_override: Optional[Dict[str, Any]] = None
-    auth: Optional[str] = None
-    headless: Optional[bool] = None
-
-
-class RunBulkRequest(BaseModel):
-    tests: List[BulkTestItem]
-
-
-class RunBulkResponse(BaseModel):
-    results: List[RunTestResponse]

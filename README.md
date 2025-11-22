@@ -6,8 +6,8 @@ Schwifly is an AI-powered browser agent that tests the functionality of your web
 
 - **Natural Language Testing**: Write test cases in plain English instead of code - describe what users should do and what success looks like
 - **Intelligent Automation**: AI agents navigate your application like real users, adapting to UI changes without brittle selectors
-- **Parallel Execution**: Run multiple tests concurrently with configurable limits for faster feedback
-- **Procedural Validation**: Optionally replay and validate against previous successful test runs to catch regressions
+- **Modular Architecture**: Built on a robust service-oriented architecture (Execution, Validation, Telemetry) for reliability and scalability
+- **Unified Observability**: Real-time, rich console output and comprehensive JSON reports powered by a unified telemetry pipeline
 
 ## Use Cases
 
@@ -85,55 +85,19 @@ poetry shell
 schwifly run tests.json
 ```
 
-That's it! Schwifly will launch a browser, execute your test, and report the results.
+That's it! Schwifly will launch a browser, execute your test using AI agents, and report the results in real-time.
 
 ---
 
-## Test Configuration
+## Architecture
 
-### Test File Format
+Schwifly is built on a modern, modular architecture designed for maintainability and extensibility:
 
-Tests are defined as JSON arrays. Each test requires four essential fields:
-
-```json
-[
-  {
-    "test_id": "unique_identifier",
-    "process": "What the test should do (user flow description)",
-    "validation": "Success criteria (string or array of strings)",
-    "starting_url": "https://example.com"
-  }
-]
-```
-
-### Field Descriptions
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `test_id` | string | ✓ | Unique identifier for the test (used in logs and artifacts) |
-| `process` | string | ✓ | Human-readable description of the user flow or task |
-| `validation` | string or array | ✓ | Criteria that must be met for the test to pass |
-| `starting_url` | string | ✓ | URL where the test begins |
-| `headless` | boolean | ✗ | Override headless mode for this test |
-| `env` | string | ✗ | Override environment for this test |
-| `procedural` | object | ✗ | Procedural test configuration (see [TEST_CONFIG.md](TEST_CONFIG.md)) |
-
-### Example: Multiple Validation Rules
-
-```json
-[
-  {
-    "test_id": "login_flow",
-    "process": "Log in with test credentials and verify dashboard access",
-    "validation": [
-      "Successfully logged in",
-      "Redirected to dashboard page",
-      "User profile name is visible"
-    ],
-    "starting_url": "https://example.com/login"
-  }
-]
-```
+- **Execution Service**: Orchestrates AI agents and procedural replay (coming soon) to perform test steps.
+- **Validation Service**: Uses LLMs to evaluate test outcomes against natural language rules.
+- **Telemetry Service**: A unified pipeline that streams events to the console (via Rich) and file logs.
+- **Artifact Service**: Manages the storage of test reports, screenshots, and logs.
+- **Unified Data Models**: Uses a standardized `Step` model throughout the lifecycle, ensuring consistency from execution to reporting.
 
 ---
 
@@ -149,13 +113,10 @@ schwifly run tests.json
 schwifly run tests.json --no-headless
 
 # Run with procedural validation enabled
-schwifly run tests.json --use-procedural
+schwifly run tests.json --procedural
 
 # Override environment
 schwifly run tests.json --env staging
-
-# Combine options
-schwifly run tests.json --no-headless --env production
 ```
 
 ### CLI Options
@@ -163,86 +124,39 @@ schwifly run tests.json --no-headless --env production
 | Option | Type | Description |
 |--------|------|-------------|
 | `--headless / --no-headless` | flag | Run browser in headless mode (overrides `.env`) |
-| `--use-procedural / --no-use-procedural` | flag | Enable procedural test validation |
+| `--procedural / --no-procedural` | flag | Enable procedural test validation |
 | `--env TEXT` | string | Specify environment (e.g., `staging`, `production`) |
-| `--verbose / --no-verbose` | flag | Show detailed output |
-
----
-
-## Configuration
-
-### Environment Variables
-
-Configure defaults in your `.env` file:
-
-```bash
-# Required
-GOOGLE_API_KEY=your_key_here
-
-# Browser Settings
-HEADLESS=true
-
-# Test Execution
-MAX_CONCURRENT_TESTS=5
-TIMEOUT_SEC=300
-TEST_ENV=production
-
-# Procedural Testing (optional)
-PROCEDURAL_USE=false
-PROCEDURAL_UPDATE=ai_success
-PROCEDURAL_VALIDATE_AGAINST=outcome
-```
-
-### Configuration Hierarchy
-
-Settings are applied in this order (later overrides earlier):
-
-1. **Environment variables** (`.env` file)
-2. **CLI arguments** (`--headless`, `--env`, etc.)
-3. **Individual test overrides** (fields in test JSON)
-
-For detailed configuration options, see [TEST_CONFIG.md](TEST_CONFIG.md).
 
 ---
 
 ## Output & Results
 
-Schwifly provides:
+Schwifly provides a premium CLI experience powered by `rich`:
 
-- **Real-time progress**: See tests start and complete with pass/fail status
-- **Detailed validation**: View which validation rules passed or failed
-- **Summary table**: Final results with test IDs, status, and duration
-- **Artifacts**: Browser recordings and test reports saved to `artifacts/` directory
-- **Logs**: Detailed logs written to `schwifly_cli.log`
+- **Real-time Streaming**: Watch steps execute live with color-coded status.
+- **Detailed Verdicts**: See exactly which validation rules passed or failed.
+- **Summary Table**: A clean final summary of all tests run.
+- **Artifacts**: JSON reports and logs saved to `artifacts/<run_id>/`.
 
 ### Example Output
 
 ```
-Running 2 tests...
-Starting login_flow...
-login_flow ✔ PASS
-  ✔ Successfully logged in
-  ✔ Redirected to dashboard page
+Running 1 tests...
+[10:00:01] [login_flow] [magenta]Starting Test: Log in and verify dashboard[/magenta]
+[10:00:05] [login_flow] [success][SUCCESS][/success] navigate
+[10:00:08] [login_flow] [success][SUCCESS][/success] fill_form
+[10:00:12] [login_flow] [success][SUCCESS][/success] click
+[10:00:15] [login_flow] [success]Test Verdict: PASSED[/success]
+[10:00:15] [login_flow] [success][PASS] Finished Test in 14.20s[/success]
 
 Test Summary
 ┏━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━┓
 ┃ Test ID    ┃ Status ┃ Duration (s) ┃
 ┡━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━┩
-│ login_flow │ PASS   │        12.34 │
+│ login_flow │ PASS   │        14.20 │
 └────────────┴────────┴──────────────┘
 Success Rate: 1/1 (100.0%)
 ```
-
----
-
-## Advanced Features
-
-- **Procedural Testing**: Record successful test runs and validate future runs match the same flow
-- **Parallel Execution**: Run multiple tests simultaneously with configurable concurrency limits
-- **Environment Management**: Test across different environments with credential overrides
-- **Rule-based Validation**: Define multiple specific validation criteria per test
-
-For advanced usage, see [TEST_CONFIG.md](TEST_CONFIG.md).
 
 ---
 

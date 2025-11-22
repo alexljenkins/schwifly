@@ -5,8 +5,7 @@ from typing import Dict, Any, Optional
 from browser_use import Agent, ChatGoogle, BrowserProfile
 from schwifly.config import config
 from schwifly.models import AgentOutput
-from schwifly.secrets import build_sensitive_data
-from schwifly.logger import EventLogger
+from schwifly.services.telemetry import TelemetryService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ async def run_agent(
     timeout_sec: int,
     headless: Optional[bool] = None,
     auth: Optional[str] = None,
-    event_logger: Optional[EventLogger] = None,
+    telemetry: Optional[TelemetryService] = None,
     test_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     # Append instruction for structured output
@@ -65,8 +64,8 @@ async def run_agent(
         else:
             history = history_obj
             
-        # Log history as events if logger is provided
-        if event_logger and history:
+        # Log history as events if telemetry is provided
+        if telemetry and history:
             for item in history:
                 try:
                     model_output = getattr(item, "model_output", None)
@@ -89,15 +88,16 @@ async def run_agent(
                                 if action_name == "done":
                                     continue
                                     
-                                event_logger.step(
+                                telemetry.step_end(
+                                    step_id="unknown", # We don't have ID here easily
                                     action=action_name,
-                                    params=params if isinstance(params, dict) else {"value": params},
-                                    duration_ms=0, # We don't have per-step duration from history easily
                                     outcome="success",
+                                    duration_ms=0,
+                                    error=None,
                                     test_id=test_id
                                 )
                 except Exception as e:
-                    event_logger.info(f"Failed to parse history item: {e}", test_id=test_id)
+                    telemetry.info(f"Failed to parse history item: {e}", test_id=test_id)
 
         final_url = None
         final_title = None
@@ -190,4 +190,3 @@ async def run_agent(
             "final_title": None,
             "error": str(e),
         }
-
