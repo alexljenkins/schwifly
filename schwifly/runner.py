@@ -30,21 +30,21 @@ logger = logging.getLogger(__name__)
 
 
 def load_gold_standard(test_id: str) -> Optional[List[ExecutableStep]]:
-    """Load gold standard steps for a test."""
-    path = Path(f"gold_standards/{test_id}.json")
+    """Load procedures for a test."""
+    path = Path(f"procedures/{test_id}.json")
     if path.exists():
         try:
             with open(path, "r") as f:
                 data = json.load(f)
                 return [ExecutableStep(**step) for step in data]
         except Exception as e:
-            logger.error(f"Failed to load gold standard for {test_id}: {e}")
+            logger.error(f"Failed to load procedure for {test_id}: {e}")
     return None
 
 
 def save_gold_standard(test_id: str, steps: List[ExecutableStep]):
-    """Save gold standard steps for a test."""
-    path = Path(f"gold_standards/{test_id}.json")
+    """Save procedures for a test."""
+    path = Path(f"procedures/{test_id}.json")
     path.parent.mkdir(exist_ok=True)
     with open(path, "w") as f:
         json.dump([step.model_dump() for step in steps], f, indent=2)
@@ -81,7 +81,7 @@ async def run_test(
     
     headless_value = headless if headless is not None else config.HEADLESS
     
-    # --- 1. Load Gold Standard ---
+    # --- 1. Load Procedural Steps ---
     gold_steps = load_gold_standard(test_id)
     
     replay_used = False
@@ -94,7 +94,7 @@ async def run_test(
     
     # --- 2. Replay (if available) ---
     if procedural.use and gold_steps:
-        event_logger.info("Attempting replay with gold standard steps", test_id=test_id)
+        event_logger.info("Attempting replay with procedural steps", test_id=test_id)
         replay_used = True
         execution_method = "replay"
         
@@ -157,7 +157,7 @@ async def run_test(
             event_logger.error(f"AI Agent failed: {error_msg}", test_id=test_id)
             errors.append(error_msg)
         
-        # Extract steps from history for potential gold standard update
+        # Extract steps from history for potential procedure update
         if agent_result.get("history"):
             # We need to reconstruct StepExecutedPayload list from history for conversion
             # This duplicates logic in run_agent logging, but we need the objects here.
@@ -231,7 +231,7 @@ async def run_test(
     
     event_logger.verdict(passed, reasons, test_id=test_id)
     
-    # --- 5. Update Gold Standard ---
+    # --- 5. Update Procedure ---
     if passed and execution_method == "ai" and executed_steps:
         should_update = False
         if procedural.update == "always":
@@ -244,7 +244,7 @@ async def run_test(
             new_gold_steps = convert_step_traces_to_executable(executed_steps)
             if new_gold_steps:
                 save_gold_standard(test_id, new_gold_steps)
-                event_logger.info("Updated Gold Standard", test_id=test_id)
+                event_logger.info("Updated Procedure", test_id=test_id)
 
     finished_at = datetime.utcnow().isoformat() + "Z"
     duration_sec = (datetime.fromisoformat(finished_at.replace("Z", "+00:00")) - 

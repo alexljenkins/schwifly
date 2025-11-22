@@ -9,12 +9,12 @@ async def verify_logging():
     test_id = "logging_verification_test"
     
     # Clean up previous runs
-    if Path(f"gold_standards/{test_id}.json").exists():
-        Path(f"gold_standards/{test_id}.json").unlink()
+    if Path(f"procedures/{test_id}.json").exists():
+        Path(f"procedures/{test_id}.json").unlink()
     
     print(f"Running test: {test_id}")
     
-    # Run 1: AI Fallback (Should create Gold Standard)
+    # Run 1: AI Fallback (Should create Procedurals)
     report = await run_test(
         test_id=test_id,
         process="Navigate to https://example.com",
@@ -53,18 +53,18 @@ async def verify_logging():
     else:
         print(f"FAIL: Missing event types. Step: {has_step}, Validation: {has_validation}, Verdict: {has_verdict}")
 
-    # Verify Gold Standard Creation
-    gold_file = Path(f"gold_standards/{test_id}.json")
-    if gold_file.exists():
-        print("PASS: Gold standard file created")
-        with open(gold_file, "r") as f:
-            gold_steps = json.load(f)
-            print(f"Gold standard has {len(gold_steps)} steps")
+    # Verify Procedural Steps Creation
+    procedural_file = Path(f"procedures/{test_id}.json")
+    if procedural_file.exists():
+        print("PASS: Procedural steps file created")
+        with open(procedural_file, "r") as f:
+            procedural_steps = json.load(f)
+            print(f"Procedural steps has {len(procedural_steps)} steps")
     else:
-        print("FAIL: Gold standard file NOT created")
+        print("FAIL: Procedural steps file NOT created")
 
-    # Run 2: Replay (Should use Gold Standard)
-    print("\nRunning Replay Test...")
+    # Run 2: Replay (Should use Procedurals)
+    print("\nRunning Procedural Test...")   
     report_replay = await run_test(
         test_id=test_id,
         process="Navigate to https://example.com",
@@ -77,10 +77,10 @@ async def verify_logging():
     print(f"Run 2 Verdict: {report_replay.verdict.passed}")
     print(f"Run 2 Method: {report_replay.execution_method}")
     
-    if report_replay.execution_method == "replay":
-        print("PASS: Used Replay method")
+    if report_replay.execution_method == "procedural":
+        print("PASS: Used Procedural method")
     else:
-        print(f"FAIL: Did not use Replay method (Used {report_replay.execution_method})")
+        print(f"FAIL: Did not use Procedural method (Used {report_replay.execution_method})")
 
 if __name__ == "__main__":
     asyncio.run(verify_logging())
