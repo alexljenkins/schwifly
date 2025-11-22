@@ -1,7 +1,86 @@
 from typing import Dict, Any, List, Optional, Union, Literal
 from datetime import datetime
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
 
+
+class EventType(str, Enum):
+    SUITE_START = "suite_start"
+    SUITE_END = "suite_end"
+    TEST_START = "test_start"
+    TEST_END = "test_end"
+    STEP_EXECUTED = "step_executed"
+    VALIDATION = "validation"
+    VERDICT = "verdict"
+    ERROR = "error"
+    INFO = "info"
+
+
+class StepExecutedPayload(BaseModel):
+    action: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    duration_ms: float
+    outcome: Literal["success", "failure"]
+    error: Optional[str] = None
+    screenshot_path: Optional[str] = None
+
+
+class ValidationPayload(BaseModel):
+    check_type: Literal["content", "url", "process", "performance"]
+    description: str
+    expected: Any
+    actual: Any
+    passed: bool
+
+
+class VerdictPayload(BaseModel):
+    passed: bool
+    reasons: List[str]
+
+
+class ErrorPayload(BaseModel):
+    message: str
+    stack_trace: Optional[str] = None
+
+
+class InfoPayload(BaseModel):
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
+class TestStartPayload(BaseModel):
+    test_id: str
+    start_url: str
+    process_description: str
+
+
+class TestEndPayload(BaseModel):
+    test_id: str
+    status: Literal["PASS", "FAIL"]
+    duration_ms: float
+
+
+LogEventPayload = Union[
+    StepExecutedPayload,
+    ValidationPayload,
+    VerdictPayload,
+    ErrorPayload,
+    InfoPayload,
+    TestStartPayload,
+    TestEndPayload,
+    Dict[str, Any]  # Fallback
+]
+
+
+class LogEvent(BaseModel):
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    run_id: str
+    test_id: Optional[str] = None
+    event_type: EventType
+    payload: LogEventPayload
+
+
+# --- Legacy / Existing Models (kept for compatibility during refactor) ---
 
 class StepTrace(BaseModel):
     index: int
@@ -29,9 +108,16 @@ class ExecutableStep(BaseModel):
     description: Optional[str] = None
 
 
+class RuleResult(BaseModel):
+    rule: str
+    passed: bool
+    reason: Optional[str] = None
+
+
 class RuleEvaluation(BaseModel):
     passed: bool
     reasons: List[str]
+    rule_results: List[RuleResult] = []
 
 
 class StepDiff(BaseModel):
@@ -42,7 +128,6 @@ class StepDiff(BaseModel):
 
 
 class Verdict(BaseModel):
-    passed: bool
     passed: bool
     reasons: List[str]
 
@@ -63,17 +148,17 @@ class Artifacts(BaseModel):
     screenshots_path: str
 
 
-class HistoricalConfig(BaseModel):
+class ProceduralConfig(BaseModel):
     use: bool
-    update: Literal["always", "never", "success", "changes"]
+    update: Literal["always", "never", "ai_success", "changes"]
     validate_against: Optional[Literal["outcome", "exact_process"]] = None
 
 
 class TestInputs(BaseModel):
     process: Union[str, Dict[str, Any]]
-    validation: Union[str, Dict[str, Any]]
+    validation: Union[str, List[str], Dict[str, Any]]
     starting_url: str
-    historical: HistoricalConfig
+    procedural: ProceduralConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
     auth: Optional[str] = None
@@ -106,9 +191,9 @@ class Report(BaseModel):
 class RunTestRequest(BaseModel):
     test_id: str
     process: Union[str, Dict[str, Any]]
-    validation: Union[str, Dict[str, Any]]
+    validation: Union[str, List[str], Dict[str, Any]]
     starting_url: str
-    historical: HistoricalConfig
+    procedural: ProceduralConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
     auth: Optional[str] = None
@@ -128,9 +213,9 @@ class RunTestResponse(BaseModel):
 class BulkTestItem(BaseModel):
     test_id: str
     process: Union[str, Dict[str, Any]]
-    validation: Union[str, Dict[str, Any]]
+    validation: Union[str, List[str], Dict[str, Any]]
     starting_url: str
-    historical: HistoricalConfig
+    procedural: ProceduralConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
     auth: Optional[str] = None
@@ -143,4 +228,3 @@ class RunBulkRequest(BaseModel):
 
 class RunBulkResponse(BaseModel):
     results: List[RunTestResponse]
-

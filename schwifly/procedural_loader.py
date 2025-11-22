@@ -1,4 +1,4 @@
-"""Load and manage historical test data for replay."""
+"""Load and manage procedural test data for replay."""
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any

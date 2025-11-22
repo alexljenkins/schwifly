@@ -5,7 +5,7 @@ from schwifly.config import config
 
 def build_sensitive_data(creds_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     sensitive_data = {
-        "username": config.APP_USERNAME,
+        "username": config.APP_EMAIL,
         "password": config.APP_PASSWORD,
     }
     

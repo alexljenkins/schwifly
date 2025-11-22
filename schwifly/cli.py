@@ -3,12 +3,11 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from schwifly.runner import run_test
-from schwifly.models import HistoricalConfig
+from schwifly.models import ProceduralConfig
 from schwifly.config import config
 
 app = typer.Typer()
@@ -33,12 +32,12 @@ for logger_name in logging.root.manager.loggerDict:
 async def run_single_test(test_data: dict, headless: bool = True):
     test_id = test_data.get("test_id", "unknown")
     
-    # Construct HistoricalConfig object
-    hist_data = test_data.get("historical", {})
-    historical = HistoricalConfig(
-        use=hist_data.get("use", False),
-        update=hist_data.get("update", "success"),
-        validate_against=hist_data.get("validate_against", "outcome")
+    # Construct ProceduralConfig object
+    proc_data = test_data.get("procedural", {})
+    procedural = ProceduralConfig(
+        use=proc_data.get("use", False),
+        update=proc_data.get("update", "ai_success"),
+        validate_against=proc_data.get("validate_against", "outcome")
     )
     
     try:
@@ -47,7 +46,7 @@ async def run_single_test(test_data: dict, headless: bool = True):
             process=test_data.get("process"),
             validation=test_data.get("validation"),
             starting_url=test_data.get("starting_url"),
-            historical=historical,
+            procedural=procedural,
             env=test_data.get("env"),
             creds_override=test_data.get("creds_override"),
             headless=test_data.get("headless", headless)
@@ -61,8 +60,10 @@ async def run_single_test(test_data: dict, headless: bool = True):
 @app.command()
 def run(
     path: Path = typer.Argument(..., help="Path to a JSON test file or directory of tests"),
-    headless: bool = typer.Option(True, help="Run browser in headless mode"),
+    headless: bool = typer.Option(None, help="Run browser in headless mode (overrides config)"),
     verbose: bool = typer.Option(False, help="Show detailed output"),
+    use_procedural: bool = typer.Option(None, help="Use procedural test data (overrides config)"),
+    env: str = typer.Option(None, help="Environment to use for tests (overrides config)"),
 ):
     """
     Run Schwifly tests from a JSON file.
@@ -77,7 +78,11 @@ def run(
         try:
             with open(path, "r") as f:
                 content = json.load(f)
-                if isinstance(content, list):
+                
+                # Support both array format and object with "tests" key
+                if isinstance(content, dict) and "tests" in content:
+                    tests_to_run.extend(content["tests"])
+                elif isinstance(content, list):
                     tests_to_run.extend(content)
                 else:
                     tests_to_run.append(content)
@@ -88,6 +93,31 @@ def run(
         # TODO: Implement directory scanning
         console.print("[yellow]Directory scanning not yet implemented. Please specify a file.[/yellow]")
         return
+    
+    # Determine effective values from CLI or config
+    effective_headless = headless if headless is not None else config.HEADLESS
+    effective_procedural_use = use_procedural if use_procedural is not None else config.PROCEDURAL_USE
+    effective_env = env if env is not None else config.TEST_ENV
+    
+    # Apply config defaults to tests that don't have explicit values
+    for test in tests_to_run:
+        # Apply headless default from CLI or config if not specified
+        if "headless" not in test:
+            test["headless"] = effective_headless
+        
+        # Apply procedural defaults if not specified
+        if "procedural" not in test:
+            test["procedural"] = {
+                "use": effective_procedural_use,
+                "update": config.PROCEDURAL_UPDATE,
+                "validate_against": config.PROCEDURAL_VALIDATE_AGAINST
+            }
+        
+        # Apply env and creds_override defaults if not specified
+        if "env" not in test:
+            test["env"] = effective_env
+        if "creds_override" not in test:
+            test["creds_override"] = config.TEST_CREDS_OVERRIDE
 
     if not tests_to_run:
         console.print("[yellow]No tests found to run.[/yellow]")
@@ -109,12 +139,31 @@ def run(
                 
                 if report and report.verdict.passed:
                     console.print(f"[bold cyan]{test_id}[/bold cyan] [green]✔ PASS[/green]")
+                    # Show rule details if available even on pass
+                    if report.rule_evaluation and report.rule_evaluation.rule_results:
+                        for rr in report.rule_evaluation.rule_results:
+                            status_icon = "✔" if rr.passed else "✘"
+                            status_color = "green" if rr.passed else "red"
+                            console.print(f"  [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
                     return {"id": test_id, "status": "PASS", "duration": report.duration_sec}
                 else:
                     console.print(f"[bold cyan]{test_id}[/bold cyan] [red]✘ FAIL[/red]")
+                    
+                    # Show rule details
+                    if report and report.rule_evaluation and report.rule_evaluation.rule_results:
+                        for rr in report.rule_evaluation.rule_results:
+                            status_icon = "✔" if rr.passed else "✘"
+                            status_color = "green" if rr.passed else "red"
+                            console.print(f"  [{status_color}]{status_icon} {rr.rule}[/{status_color}]")
+                            if not rr.passed and rr.reason:
+                                console.print(f"    [red]Reason: {rr.reason}[/red]")
+                    
+                    # Show general reasons if no specific rule results or as supplement
                     if report and report.verdict.reasons:
+                        console.print("  [bold]Verdict Reasons:[/bold]")
                         for reason in report.verdict.reasons:
-                            console.print(f"  [red]{test_id} Reason: {reason}[/red]")
+                            console.print(f"  [red]- {reason}[/red]")
+                            
                     return {"id": test_id, "status": "FAIL", "duration": report.duration_sec if report else 0}
             except Exception as e:
                 console.print(f"[bold cyan]{test_id}[/bold cyan] [red]✘ ERROR[/red]")

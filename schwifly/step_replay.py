@@ -1,11 +1,12 @@
 """Step replay engine for executing stored steps directly without AI."""
 import asyncio
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from schwifly.models import ExecutableStep
 from schwifly.config import config
-
+from schwifly.logger import EventLogger
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,13 @@ logger = logging.getLogger(__name__)
 class StepReplayEngine:
     """Executes stored steps directly using browser automation."""
     
-    def __init__(self, headless: bool = None):
+    def __init__(self, headless: bool = None, event_logger: Optional[EventLogger] = None, test_id: Optional[str] = None):
         self.headless = headless if headless is not None else config.HEADLESS
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
+        self.event_logger = event_logger
+        self.test_id = test_id
     
     async def start(self):
         """Initialize browser and context."""
@@ -83,6 +86,7 @@ class StepReplayEngine:
     
     async def _execute_step(self, step: ExecutableStep) -> tuple[bool, Optional[str]]:
         """Execute a single step and return (success, error_message)."""
+        start_time = time.perf_counter()
         try:
             if step.action == "navigate":
                 if step.value:
@@ -151,11 +155,32 @@ class StepReplayEngine:
                     await self.page.screenshot(path=step.value)
             
             await self._wait_for_condition(step)
+            
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if self.event_logger:
+                self.event_logger.step(
+                    action=step.action,
+                    params={"selector": step.selector, "value": step.value},
+                    duration_ms=duration_ms,
+                    outcome="success",
+                    test_id=self.test_id
+                )
             return True, None
             
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
             error_msg = f"Step execution failed: {str(e)}"
             logger.debug(f"{step.action} failed: {error_msg}")
+            
+            if self.event_logger:
+                self.event_logger.step(
+                    action=step.action,
+                    params={"selector": step.selector, "value": step.value},
+                    duration_ms=duration_ms,
+                    outcome="failure",
+                    error=error_msg,
+                    test_id=self.test_id
+                )
             return False, error_msg
     
     async def execute_steps(
@@ -230,12 +255,15 @@ async def replay_steps(
     steps: List[ExecutableStep],
     starting_url: str,
     headless: bool = None,
+    event_logger: Optional[EventLogger] = None,
+    test_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Convenience function to replay steps."""
-    engine = StepReplayEngine(headless=headless)
+    engine = StepReplayEngine(headless=headless, event_logger=event_logger, test_id=test_id)
     try:
         result = await engine.execute_steps(steps, starting_url)
         return result
     finally:
         await engine.stop()
+
 
