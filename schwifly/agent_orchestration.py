@@ -6,6 +6,7 @@ from browser_use import Agent, ChatGoogle, BrowserProfile
 from schwifly.config import config
 from schwifly.models import AgentOutput
 from schwifly.secrets import build_sensitive_data
+from schwifly.logger import EventLogger
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ async def run_agent(
     timeout_sec: int,
     headless: Optional[bool] = None,
     auth: Optional[str] = None,
+    event_logger: Optional[EventLogger] = None,
+    test_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     # Append instruction for structured output
     task += " Please provide a usability score (1-10) and list any redundant steps in the final output."
@@ -61,6 +64,41 @@ async def run_agent(
             history = history_obj.history
         else:
             history = history_obj
+            
+        # Log history as events if logger is provided
+        if event_logger and history:
+            for item in history:
+                try:
+                    model_output = getattr(item, "model_output", None)
+                    if model_output:
+                        # Extract actions
+                        actions = []
+                        if hasattr(model_output, "action") and model_output.action:
+                            actions = model_output.action
+                        elif isinstance(model_output, dict) and "action" in model_output:
+                            actions = model_output["action"]
+                            
+                        for action_item in actions:
+                            action_dict = {}
+                            if hasattr(action_item, "model_dump"):
+                                action_dict = action_item.model_dump()
+                            elif isinstance(action_item, dict):
+                                action_dict = action_item
+                                
+                            for action_name, params in action_dict.items():
+                                if action_name == "done":
+                                    continue
+                                    
+                                event_logger.step(
+                                    action=action_name,
+                                    params=params if isinstance(params, dict) else {"value": params},
+                                    duration_ms=0, # We don't have per-step duration from history easily
+                                    outcome="success",
+                                    test_id=test_id
+                                )
+                except Exception as e:
+                    event_logger.info(f"Failed to parse history item: {e}", test_id=test_id)
+
         final_url = None
         final_title = None
         
