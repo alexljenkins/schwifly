@@ -1,0 +1,14 @@
+{
+  "test_id": "pricing",
+  "process": "Get the annual and monthly prices for all Relevance AI plans and any additions.",
+  "validation": "Purchasables must include all of the following plans, prices and add-ons: Plans: Free, Pro and Team with monthly billing of $0, $29, $349 and annual billing of $0, $19, $234 a month. An enterprise plan with custom pricing (contact sales). Extra Actions as $40 per 1,000 actions. Extra Credits at $20 per 10,000 credits. If all were found at the given prices, validation is successful.",
+  "starting_url": "https://relevanceai.com",
+  "historical": {
+    "use": false,
+    "update": "success",
+    "validate_against": "outcome"
+  },
+  "headless": true,
+  "env": null,
+  "creds_override": null
+}
