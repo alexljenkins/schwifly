@@ -4,7 +4,7 @@ import logging
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from schwifly.models import (
     Report,
     TestInputs,
@@ -46,6 +46,7 @@ async def run_test(
     creds_override: Optional[Dict[str, Any]] = None,
     run_timestamp: Optional[str] = None,
     headless: Optional[bool] = None,
+    auth: Optional[str] = None,
 ) -> Report:
     run_id = str(uuid.uuid4())
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -60,12 +61,22 @@ async def run_test(
     
     artifacts_base = Path("artifacts")
     artifacts_base.mkdir(exist_ok=True)
-    logs_path = artifacts_base / f"{run_timestamp}.log"
-    
-    file_handler = logging.FileHandler(logs_path, mode='a')
-    file_handler.setLevel(getattr(logging, config.LOG_LEVEL))
+    # Setup logging with test-specific logger
+    log_file = test_dir / "schwifly.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
+    
+    # Create test-specific logger
+    test_logger = logging.getLogger(f"schwifly.{test_id}")
+    test_logger.setLevel(logging.INFO)
+    test_logger.addHandler(file_handler)
+    
+    # Also configure base schwifly logger for setup messages
+    schwifly_logger = logging.getLogger("schwifly")
+    schwifly_logger.setLevel(logging.INFO)
+    schwifly_logger.addHandler(file_handler)
     
     root_logger = logging.getLogger()
     root_logger.addHandler(file_handler)
@@ -82,14 +93,17 @@ async def run_test(
     
     try:
         agent_result = None
+        agent_result = None
         step_trace: List[StepTrace] = []
+        usability_score = None
+        redundant_steps = []
         
         if historical.use:
             excluded_run_ids = get_excluded_run_ids(test_id)
             executable_steps = load_executable_steps_for_replay(test_id, excluded_run_ids)
             
             if executable_steps:
-                logger.info(f"Attempting replay for test {test_id} with {len(executable_steps)} steps")
+                test_logger.info(f"Replay: {len(executable_steps)} steps from previous run")
                 step_trace_capture.add_step(
                     action="replay_started",
                     outcome="success",
@@ -132,22 +146,24 @@ async def run_test(
                     )
                     
                     if not rule_evaluation.passed:
-                        logger.info(f"Replay succeeded but validation failed, falling back to AI")
+                        test_logger.info("Replay: validation failed, falling back to AI")
                         previous_report = load_latest_report(test_id)
                         if previous_report:
                             add_excluded_run_id(test_id, previous_report.get("run_id", ""))
                         replay_used = False
                         replay_successful = False
+                        execution_method = "ai"
                         executable_steps = None
                     else:
-                        logger.info(f"Replay succeeded and validation passed")
+                        test_logger.info("Replay: completed successfully")
                 else:
                     replay_successful = False
-                    logger.info(f"Replay failed: {replay_result.get('error')}, falling back to AI")
+                    test_logger.info(f"Replay: failed ({replay_result.get('error')}), falling back to AI")
                     previous_report = load_latest_report(test_id)
                     if previous_report:
                         add_excluded_run_id(test_id, previous_report.get("run_id", ""))
                     replay_used = False
+                    execution_method = "ai"
                     executable_steps = None
         
         if not replay_used or not replay_successful:
@@ -165,6 +181,7 @@ async def run_test(
                 sensitive_data=sensitive_data,
                 timeout_sec=config.TIMEOUT_SEC,
                 headless=headless_value,
+                auth=auth,
             )
             
             if agent_result["error"]:
@@ -175,11 +192,92 @@ async def run_test(
                 )
                 errors.append(agent_result["error"])
             else:
+                # Process agent history to extract steps
+                if "history" in agent_result and agent_result["history"]:
+                    for i, history_item in enumerate(agent_result["history"]):
+                        # Check if history_item is a tuple (model_output, result)
+                        if isinstance(history_item, tuple):
+                            model_output = history_item[0]
+                            # result = history_item[1]
+                        else:
+                            # Assume it's an object
+                            model_output = getattr(history_item, "model_output", None)
+
+                        if model_output:
+                            # Depending on browser-use version, model_output might be a dict or object
+                            # Assuming it's an object with action attributes based on 0.9.6
+                            # We need to convert this to our StepTrace format
+                            
+                            # Parse the model output to extract specific actions
+                            try:
+                                if hasattr(model_output, "action") and model_output.action:
+                                    actions = model_output.action
+                                elif isinstance(model_output, dict) and "action" in model_output:
+                                    actions = model_output["action"]
+                                else:
+                                    actions = []
+
+                                for action_item in actions:
+                                    # action_item is likely a dict {action_name: params}
+                                    if hasattr(action_item, "model_dump"):
+                                        action_dict = action_item.model_dump()
+                                    elif isinstance(action_item, dict):
+                                        action_dict = action_item
+                                    else:
+                                        continue
+                                    
+                                    for action_name, params in action_dict.items():
+                                        if action_name == "done":
+                                            continue
+                                            
+                                        step_data = {}
+                                        target = None
+                                        locator = None
+                                        
+                                        if isinstance(params, dict):
+                                            step_data = params
+                                            if "url" in params:
+                                                step_data["url"] = params["url"]
+                                                target = params["url"]
+                                            if "index" in params:
+                                                # Browser-use uses index for clicks sometimes
+                                                step_data["index"] = params["index"]
+                                                locator = f"index={params['index']}"
+                                            if "text" in params:
+                                                step_data["text"] = params["text"]
+                                            if "coordinate_x" in params and "coordinate_y" in params:
+                                                step_data["x"] = params["coordinate_x"]
+                                                step_data["y"] = params["coordinate_y"]
+                                        
+                                        step_trace_capture.add_step(
+                                            action=action_name,
+                                            outcome="success",
+                                            data=step_data,
+                                            target=target,
+                                            locator=locator
+                                        )
+                            except Exception as e:
+                                # Fallback if parsing fails
+                                try:
+                                    action_data = model_output.model_dump()
+                                except:
+                                    action_data = str(model_output)
+                                    
+                                step_trace_capture.add_step(
+                                    action="agent_action_error",
+                                    outcome="error", 
+                                    error=str(e),
+                                    data={"raw_action": action_data}
+                                )
+
                 step_trace_capture.add_step(
                     action="agent_completed",
                     outcome="success",
                     data={"final_url": agent_result["final_url"]} if agent_result["final_url"] else None,
                 )
+                
+                usability_score = agent_result.get("usability_score")
+                redundant_steps = agent_result.get("redundant_steps", [])
             
             step_trace = step_trace_capture.get_trace()
             
@@ -220,7 +318,7 @@ async def run_test(
         verdict = Verdict(passed=verdict_passed, reasons=verdict_reasons)
         
     except Exception as e:
-        logger.exception("Error during test execution")
+        test_logger.exception("Test execution error")
         errors.append(str(e))
         step_trace = step_trace_capture.get_trace()
         if not executable_steps:
@@ -248,6 +346,7 @@ async def run_test(
         historical=historical,
         env=env,
         creds_override=creds_override,
+        auth=auth,
     )
     
     report = Report(
@@ -268,10 +367,12 @@ async def run_test(
         execution_method=execution_method,
         verdict=verdict,
         artifacts=Artifacts(
-            report_path="",
-            logs_path="",
-            screenshots_path="",
+            report_path=str(test_dir / "report.json"),
+            logs_path=str(log_file),
+            screenshots_path=str(test_dir / "screenshots"),
         ),
+        usability_score=usability_score,
+        redundant_steps=redundant_steps,
         errors=errors,
         redactions=[],
     )
@@ -283,7 +384,7 @@ async def run_test(
         update_mode=historical.update,
         verdict=verdict,
         step_diff=step_diff,
-        logs_path=logs_path,
+        logs_path=log_file,
     )
     report.artifacts = Artifacts(**artifact_paths)
     report_path = artifact_paths['report_path']
@@ -293,7 +394,7 @@ async def run_test(
     report.redactions = redactions
     
     status = "PASS" if verdict.passed else "FAIL"
-    logger.info(f"[{status}] {test_id} in {duration_sec:.2f}s — {report_path}")
+    test_logger.info(f"[{status}] Completed in {duration_sec:.2f}s — {Path(report_path).name}")
     
     root_logger.removeHandler(file_handler)
     file_handler.close()

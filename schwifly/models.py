@@ -43,7 +43,18 @@ class StepDiff(BaseModel):
 
 class Verdict(BaseModel):
     passed: bool
+    passed: bool
     reasons: List[str]
+
+
+class AgentOutput(BaseModel):
+    """Structured output from the agent."""
+    success: bool
+    final_url: Optional[str] = None
+    final_title: Optional[str] = None
+    usability_score: int = 10
+    redundant_steps: List[str] = []
+    summary: str
 
 
 class Artifacts(BaseModel):
@@ -65,6 +76,7 @@ class TestInputs(BaseModel):
     historical: HistoricalConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
+    auth: Optional[str] = None
 
 
 class Report(BaseModel):
@@ -85,6 +97,8 @@ class Report(BaseModel):
     execution_method: Literal["replay", "ai"] = "ai"
     verdict: Verdict
     artifacts: Artifacts
+    usability_score: Optional[int] = None
+    redundant_steps: List[str] = []
     errors: List[str] = []
     redactions: List[str] = []
 
@@ -97,6 +111,7 @@ class RunTestRequest(BaseModel):
     historical: HistoricalConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
+    auth: Optional[str] = None
     headless: Optional[bool] = None
 
 
@@ -118,6 +133,7 @@ class BulkTestItem(BaseModel):
     historical: HistoricalConfig
     env: Optional[str] = None
     creds_override: Optional[Dict[str, Any]] = None
+    auth: Optional[str] = None
     headless: Optional[bool] = None
 
 
