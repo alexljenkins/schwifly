@@ -6284,6 +6284,17 @@ Cython = {version = "*", markers = "sys_platform == \"darwin\""}
 pyobjc-framework-Cocoa = {version = "*", markers = "sys_platform == \"darwin\""}
 
 [[package]]
+name = "shellingham"
+version = "1.5.4"
+description = "Tool to Detect Surrounding Shell"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"},
+    {file = "shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de"},
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -6389,6 +6400,23 @@ discord = ["requests"]
 notebook = ["ipywidgets (>=6)"]
 slack = ["slack-sdk"]
 telegram = ["requests"]
+
+[[package]]
+name = "typer"
+version = "0.20.0"
+description = "Typer, build great CLIs. Easy to code. Based on Python type hints."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "typer-0.20.0-py3-none-any.whl", hash = "sha256:5b463df6793ec1dca6213a3cf4c0f03bc6e322ac5e16e13ddd622a889489784a"},
+    {file = "typer-0.20.0.tar.gz", hash = "sha256:1aaf6494031793e4876fb0bacfa6a912b551cf43c1e63c800df8b1a866720c37"},
+]
+
+[package.dependencies]
+click = ">=8.0.0"
+rich = ">=10.11.0"
+shellingham = ">=1.3.0"
+typing-extensions = ">=3.7.4.3"
 
 [[package]]
 name = "typing-extensions"
@@ -6899,4 +6927,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "bde7ed35f2f828ec12de479cb7ef48ce404e6ab53f6163d23ce5a8c7f4fc10a3"
+content-hash = "5376b64b5673d1ce9b3c2865929e48280410d18937af4025c835f6207a32cc2b"
