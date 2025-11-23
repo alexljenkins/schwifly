@@ -62,22 +62,19 @@ async def run_test(
     steps: List[Step] = []
     
     try:
-        # Try Replay (skipped for now in ExecutionService, but structure is there)
-        # if procedural.use: ...
-        
-        # Fallback to AI
-        steps = await execution_service.run_ai(
+        # Execute Test (Procedural or AI)
+        steps = await execution_service.execute_test(
             test_id=test_id,
             process=process_str,
             starting_url=starting_url,
+            procedural_config=procedural,
             creds_override=creds_override,
             headless=headless_value,
             auth=auth
         )
-        
     except Exception as e:
         telemetry.error(f"Execution failed: {str(e)}", test_id=test_id)
-        
+
     # 3. Validate
     # Extract final state (URL/Title) - TODO: ExecutionService should return this metadata
     # For now, passing None as we need to update ExecutionService to return rich result
