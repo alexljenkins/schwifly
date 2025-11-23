@@ -1,13 +1,16 @@
 # Schwifly
 
-Schwifly is an AI-powered browser agent that tests the functionality of your web application or website against user stories and human-readable test cases.
+Convert and run ALL your user stories and feature tickets as UI/UX tests!
+
+Schwifly is your AI browser agent that tests the functionality of your web application or website based on your customer centric Jira/Linear tickets.
 
 ## Value Proposition
 
-- **Natural Language Testing**: Write test cases in plain English instead of code - describe what users should do and what success looks like
-- **Intelligent Automation**: AI agents navigate your application like real users, adapting to UI changes without brittle selectors
+- **Natural Language Testing**: Write test cases in plain English or don't write them at all and simply feed in your engineers' work tickets.
+- **Intelligent Automation**: AI agents navigate your application like real users, adapting to UI changes without brittle selectors.
+- **AI Generated Procedures**:Run rule based procedures (created schwifly from your user stories and AI walkthroughs) to use first for each test. Reducing costs and increasing speed. Using AI to validate changes (where tests fail) haven't actually broken anything.
 - **Modular Architecture**: Built on a robust service-oriented architecture (Execution, Validation, Telemetry) for reliability and scalability
-- **Unified Observability**: Real-time, rich console output and comprehensive JSON reports powered by a unified telemetry pipeline
+- **Unified Observability**: Real-time, rich logs and reports to find real bugs and regressions fast!
 
 ## Use Cases
 
