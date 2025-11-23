@@ -23,5 +23,10 @@
       "Extra Credits are $20 per 10,000 credits"
     ],
     "starting_url": "https://relevanceai.com/pricing"
+  },
+  {
+    "test_id": "relevance_ai_pricing_v2",
+    "process": "Get all the Relevance AI plans and addons from the pricing page, ensuring the only plans are: <validate>Free, Pro, Team and Enterprise</validate>, and the only additions are: <validate>Credits and Actions</validate>. The prices are based all displayed as per month but annual plans are billed annually.\nPrices for each plan are:\n\n- Pro: $<validate>19</validate>/month (annual billing) and $<validate>29</validate>/month (monthly billing)\n- Team: $<validate>234</validate>/month (annual billing) and $<validate>349</validate>/month (monthly billing)\n- Enterprise: <validate>custom pricing</validate>\nExtra Actions are <validate>$40 per 1,000</validate> actions\nExtra Credits are <validate>$20 per 10,000</validate> credits.",
+    "starting_url": "https://relevanceai.com/pricing"
   }
 ]
