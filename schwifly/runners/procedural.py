@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from playwright.async_api import async_playwright, Page
 
 from schwifly.runners.base import BaseTestRunner
-from schwifly.models import Step, StepStatus
+from schwifly.models import Step, StepStatus, ExecutionResult
 from schwifly.procedural_loader import load_executable_steps_for_replay
 
 logger = logging.getLogger(__name__)
@@ -22,14 +22,15 @@ class ProceduralTestRunner(BaseTestRunner):
         creds_override: Optional[Dict[str, Any]] = None,
         headless: bool = True,
         auth: Optional[str] = None
-    ) -> List[Step]:
+    ) -> ExecutionResult:
         
         logger.info(f"Starting Procedural Runner for {test_id}")
         
         # 1. Try to find a python script
         script_path = Path(f"procedures/{test_id}.py")
         if script_path.exists():
-            return await self._run_script(script_path, starting_url, headless, auth)
+            steps = await self._run_script(script_path, starting_url, headless, auth)
+            return ExecutionResult(steps=steps, agent_output=None)
             
         # 2. Fallback to legacy replay (if available)
         # Note: In the future this might be removed or strictly separated
@@ -43,10 +44,10 @@ class ProceduralTestRunner(BaseTestRunner):
              # (it was commented out in execution.py).
              # To fully implement this, we'd need to map ExecutableStep to Playwright calls.
              logger.warning("Legacy replay steps found but replay execution is not fully implemented yet.")
-             return []
+             return ExecutionResult(steps=[], agent_output=None)
 
         logger.warning(f"No procedural method found for {test_id}")
-        return []
+        return ExecutionResult(steps=[], agent_output=None)
 
     async def _run_script(
         self, 

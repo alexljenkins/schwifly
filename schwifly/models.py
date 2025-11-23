@@ -57,6 +57,7 @@ class Step(BaseModel):
 class Verdict(BaseModel):
     passed: bool
     reasons: List[str]
+    rule_results: List[RuleResult] = []  # Granular per-validation results
 
 class TestResult(BaseModel):
     """
@@ -70,6 +71,12 @@ class TestResult(BaseModel):
     verdict: Verdict
     artifacts: Dict[str, str] = {} # path_name -> file_path
     metadata: Dict[str, Any] = {}
+
+class ExecutionResult(BaseModel):
+    """Rich result from test execution including agent output"""
+    steps: List[Step] = []
+    agent_output: Optional[Dict[str, Any]] = None  # Includes validations, final_url, etc.
+
 
 # --- Configuration Models ---
 
@@ -129,6 +136,7 @@ class ExecutableStep(BaseModel):
 class AgentOutput(BaseModel):
     """Structured output from the agent."""
     success: bool
+    validations: Dict[str, str] = {}  # {"1": "answer", "2": "answer"} for inline validation
     final_url: Optional[str] = None
     final_title: Optional[str] = None
     usability_score: int = 10

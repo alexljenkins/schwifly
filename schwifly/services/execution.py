@@ -1,5 +1,5 @@
-from typing import List, Optional, Dict, Any
-from schwifly.models import Step, ProceduralConfig
+from typing import Optional, Dict, Any
+from schwifly.models import ProceduralConfig, ExecutionResult
 from schwifly.services.telemetry import TelemetryService
 from schwifly.runners.ai import AiTestRunner
 from schwifly.runners.procedural import ProceduralTestRunner
@@ -18,15 +18,14 @@ class ExecutionService:
         procedural_config: ProceduralConfig,
         creds_override: Optional[Dict[str, Any]] = None,
         headless: bool = True,
-        auth: Optional[str] = None
-    ) -> List[Step]:
-        
-        steps: List[Step] = []
+        auth: Optional[str] = None,
+        has_validations: bool = False  # Indicates if process has inline validations
+    ) -> ExecutionResult:
         
         # 1. Try Procedural if enabled
         if procedural_config.use:
             try:
-                steps = await self.procedural_runner.run(
+                result = await self.procedural_runner.run(
                     test_id=test_id,
                     process=process,
                     starting_url=starting_url,
@@ -35,32 +34,30 @@ class ExecutionService:
                     auth=auth
                 )
                 
-                if steps:
+                if result.steps:
                     self.telemetry.info(f"Procedural execution successful for {test_id}", test_id=test_id)
-                    return self._log_steps(steps, test_id)
+                    self._log_steps(result.steps, test_id)
+                    return result
                     
             except Exception as e:
                 self.telemetry.warning(f"Procedural execution failed: {e}", test_id=test_id)
-                # Fallback will happen if steps is empty
         
         # 2. Fallback to AI
-        # If procedural was not used, or failed (and returned empty steps), run AI
-        # Note: If procedural failed but we want to stop, we should handle that. 
-        # For now, assuming fallback to AI is desired if procedural fails/doesn't exist.
-        
         self.telemetry.info(f"Running AI Agent for {test_id}", test_id=test_id)
-        steps = await self.ai_runner.run(
+        result = await self.ai_runner.run(
             test_id=test_id,
             process=process,
             starting_url=starting_url,
             creds_override=creds_override,
             headless=headless,
-            auth=auth
+            auth=auth,
+            has_validations=has_validations
         )
         
-        return self._log_steps(steps, test_id)
+        self._log_steps(result.steps, test_id)
+        return result
 
-    def _log_steps(self, steps: List[Step], test_id: str) -> List[Step]:
+    def _log_steps(self, steps, test_id: str):
         for step in steps:
             self.telemetry.step_end(
                 step_id=step.id,
@@ -70,4 +67,3 @@ class ExecutionService:
                 error=step.error,
                 test_id=test_id
             )
-        return steps

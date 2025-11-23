@@ -1,11 +1,10 @@
 import logging
 import asyncio
-import json
 from typing import List, Optional, Dict, Any
 
 from browser_use import Agent, ChatGoogle, BrowserProfile
 from schwifly.runners.base import BaseTestRunner
-from schwifly.models import Step, StepStatus, AgentOutput
+from schwifly.models import Step, StepStatus, AgentOutput, ExecutionResult
 from schwifly.config import config
 from schwifly.secrets import build_sensitive_data
 
@@ -21,16 +20,14 @@ class AiTestRunner(BaseTestRunner):
         starting_url: str,
         creds_override: Optional[Dict[str, Any]] = None,
         headless: bool = True,
-        auth: Optional[str] = None
-    ) -> List[Step]:
+        auth: Optional[str] = None,
+        has_validations: bool = False  # Indicates if process has inline validations
+    ) -> ExecutionResult:
         
         logger.info(f"Starting AI Runner for {test_id}")
         
         sensitive_data = build_sensitive_data(creds_override)
-        task = self._build_task(process, starting_url)
-        
-        # Append instruction for structured output
-        task += " Please provide a usability score (1-10) and list any redundant steps in the final output."
+        task = self._build_task(process, starting_url, has_validations)
 
         llm = self._create_llm()
         browser_profile = self._create_browser_profile(headless=headless, auth=auth)
@@ -45,9 +42,16 @@ class AiTestRunner(BaseTestRunner):
         )
         
         steps: List[Step] = []
+        agent_output: Optional[Dict[str, Any]] = None
         
         try:
             history_obj = await asyncio.wait_for(agent.run(), timeout=config.TIMEOUT_SEC)
+            
+            # Extract agent's final result (the structured output)
+            if hasattr(history_obj, 'final_result'):
+                agent_output = history_obj.final_result
+            elif hasattr(history_obj, 'result'):
+                agent_output = history_obj.result
             
             # Handle history object structure
             if hasattr(history_obj, "history"):
@@ -60,16 +64,30 @@ class AiTestRunner(BaseTestRunner):
                 
         except asyncio.TimeoutError:
             logger.error(f"AI Agent timed out for {test_id}")
-            # We could add a failed step here if needed
         except Exception as e:
             logger.error(f"AI Agent failed for {test_id}: {e}")
             
-        return steps
+        return ExecutionResult(
+            steps=steps,
+            agent_output=agent_output
+        )
 
-    def _build_task(self, process: str, base_url: Optional[str] = None) -> str:
+    def _build_task(self, process: str, base_url: Optional[str] = None, has_validations: bool = False) -> str:
+        """Build agent task with appropriate instructions"""
         if base_url:
-            return f"Navigate to {base_url} and {process}"
-        return process
+            task = f"Navigate to {base_url} and {process}"
+        else:
+            task = process
+        
+        if has_validations:
+            # Add validation-specific instructions
+            task += "\n\nIMPORTANT: Your job is to fill in the blanks within the above with the correct information found using your actions and exploration."
+            task += " Return your answers in the 'validations' field as {\"1\": \"answer\", \"2\": \"answer\", ...}"
+        else:
+            # Standard instructions
+            task += " Please provide a usability score (1-10) and list any redundant steps in the final output."
+        
+        return task
 
     def _create_llm(self) -> ChatGoogle:
         return ChatGoogle(model="gemini-flash-latest")

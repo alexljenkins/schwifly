@@ -6,7 +6,6 @@ from typing import Dict, Any, Optional, Union, List
 
 from schwifly.models import (
     TestResult,
-    Step,
     Verdict,
     ProceduralConfig,
     EventType
@@ -14,6 +13,8 @@ from schwifly.models import (
 from schwifly.config import config
 from schwifly.services.telemetry import TelemetryService
 from schwifly.services.validation import ValidationService
+from schwifly.services.validation_parser import ValidationParser
+from schwifly.services.validation_comparison import ValidationComparison
 from schwifly.services.artifacts import ArtifactService
 from schwifly.services.execution import ExecutionService
 
@@ -43,7 +44,9 @@ async def run_test(
     
     # 1. Initialize Services
     telemetry = TelemetryService(run_id=full_run_id)
-    validation_service = ValidationService()
+    validation_service = ValidationService()  # Legacy validation
+    validation_parser = ValidationParser()  # New inline validation
+    validation_comparison = ValidationComparison()  # New inline validation
     artifact_service = ArtifactService()
     execution_service = ExecutionService(telemetry)
     
@@ -57,40 +60,68 @@ async def run_test(
     
     start_time = datetime.utcnow()
     
-    # 2. Execute
+    # 2. Parse process for inline validation tags
+    parsed_process = validation_parser.parse_process(process_str)
+    
+    # 3. Execute
     headless_value = headless if headless is not None else config.HEADLESS
-    steps: List[Step] = []
+    execution_result = None
     
     try:
         # Execute Test (Procedural or AI)
-        steps = await execution_service.execute_test(
+        execution_result = await execution_service.execute_test(
             test_id=test_id,
-            process=process_str,
+            process=parsed_process.modified_process,
             starting_url=starting_url,
             procedural_config=procedural,
             creds_override=creds_override,
             headless=headless_value,
-            auth=auth
+            auth=auth,
+            has_validations=parsed_process.has_validations
         )
     except Exception as e:
         telemetry.error(f"Execution failed: {str(e)}", test_id=test_id)
 
-    # 3. Validate
-    # Extract final state (URL/Title) - TODO: ExecutionService should return this metadata
-    # For now, passing None as we need to update ExecutionService to return rich result
-    verdict = await validation_service.evaluate(
-        rules=validation,
-        steps=steps,
-        final_url=None, 
-        final_title=None
-    )
+    # 4. Validate
+    verdict: Verdict
+    
+    if parsed_process.has_validations:
+        # New inline validation approach
+        agent_validations = {}
+        if execution_result and execution_result.agent_output:
+            agent_validations = execution_result.agent_output.get("validations", {})
+        
+        # Compare agent responses against ground truth
+        rule_results = await validation_comparison.compare(
+            expected=parsed_process.validations,
+            actual=agent_validations
+        )
+        
+        # Build verdict from rule results
+        all_passed = all(r.passed for r in rule_results)
+        reasons = [r.reason for r in rule_results if r.reason] if not all_passed else []
+        
+        verdict = Verdict(
+            passed=all_passed,
+            reasons=reasons,
+            rule_results=rule_results
+        )
+    else:
+        # Legacy validation approach (for backward compatibility)
+        steps = execution_result.steps if execution_result else []
+        verdict = await validation_service.evaluate(
+            rules=validation,
+            steps=steps,
+            final_url=None, 
+            final_title=None
+        )
     
     telemetry.log(EventType.VERDICT, {
         "passed": verdict.passed,
         "reasons": verdict.reasons
     }, test_id=test_id)
     
-    # 4. Finalize
+    # 5. Finalize
     end_time = datetime.utcnow()
     duration = (end_time - start_time).total_seconds()
     status = "PASS" if verdict.passed else "FAIL"
@@ -100,6 +131,7 @@ async def run_test(
         "duration_ms": duration * 1000
     }, test_id=test_id)
     
+    steps = execution_result.steps if execution_result else []
     result = TestResult(
         test_id=test_id,
         run_id=full_run_id,

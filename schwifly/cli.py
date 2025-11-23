@@ -110,6 +110,39 @@ def run(
 
     results = asyncio.run(run_all_tests())
 
+    # Display detailed results for each test
+    for res in results:
+        if res is None:
+            continue
+            
+        console.print(f"\n[bold]Test: {res.test_id}[/bold]")
+        
+        # Display per-validation results if available
+        if res.verdict.rule_results:
+            console.print("  Validations:")
+            passed_validations = 0
+            total_validations = len(res.verdict.rule_results)
+            
+            for rule_result in res.verdict.rule_results:
+                status_color = "green" if rule_result.passed else "red"
+                status_text = "PASS" if rule_result.passed else "FAIL"
+                
+                console.print(f"    [{status_color}]{rule_result.rule.split(':')[0]} {status_text}[/{status_color}]: {rule_result.rule.split(':', 1)[1].strip() if ':' in rule_result.rule else rule_result.rule}")
+                
+                if rule_result.reason:
+                    console.print(f"         {rule_result.reason}", style="dim")
+                
+                if rule_result.passed:
+                    passed_validations += 1
+            
+            # Validation summary
+            summary_color = "green" if passed_validations == total_validations else "red"
+            console.print(f"  [{summary_color}]Result: {passed_validations}/{total_validations} validations passed[/{summary_color}]")
+        
+        # Overall verdict
+        verdict_color = "green" if res.status == "PASS" else "red"
+        console.print(f"  [{verdict_color}]Verdict: {res.status}[/{verdict_color}] (Duration: {res.duration_sec:.2f}s)")
+
     # Summary Table
     console.print("\n[bold]Test Summary[/bold]")
     table = Table(show_header=True, header_style="bold magenta")
