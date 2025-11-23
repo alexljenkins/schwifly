@@ -133,10 +133,14 @@ class ExecutableStep(BaseModel):
             description=self.description
         )
 
+class ValidationItem(BaseModel):
+    index: str
+    answer: str
+
 class AgentOutput(BaseModel):
     """Structured output from the agent."""
     success: bool
-    validations: Dict[str, str] = {}  # {"1": "answer", "2": "answer"} for inline validation
+    validations: List[ValidationItem] = []  # List of validation items
     final_url: Optional[str] = None
     final_title: Optional[str] = None
     usability_score: int = 10

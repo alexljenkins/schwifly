@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import json
 from typing import List, Optional, Dict, Any
 
 from browser_use import Agent, ChatGoogle, BrowserProfile
@@ -48,11 +49,19 @@ class AiTestRunner(BaseTestRunner):
             history_obj = await asyncio.wait_for(agent.run(), timeout=config.TIMEOUT_SEC)
             
             # Extract agent's final result (the structured output)
+            with open("/tmp/debug_ai.txt", "a") as f:
+                f.write(f"DEBUG: history_obj type: {type(history_obj)}\n")
+                f.write(f"DEBUG: history_obj dir: {dir(history_obj)}\n")
+                f.write(f"DEBUG: history_obj: {history_obj}\n")
+
             if hasattr(history_obj, 'final_result'):
-                agent_output = history_obj.final_result
+                agent_output = history_obj.final_result()
             elif hasattr(history_obj, 'result'):
-                agent_output = history_obj.result
+                agent_output = history_obj.result()
             
+            with open("/tmp/debug_ai.txt", "a") as f:
+                f.write(f"DEBUG: agent_output: {agent_output}\n")
+
             # Handle history object structure
             if hasattr(history_obj, "history"):
                 history = history_obj.history
@@ -67,6 +76,21 @@ class AiTestRunner(BaseTestRunner):
         except Exception as e:
             logger.error(f"AI Agent failed for {test_id}: {e}")
             
+        # Ensure agent_output is a dict
+        if agent_output is not None and not isinstance(agent_output, dict):
+            # Handle Pydantic models
+            if hasattr(agent_output, "model_dump"):
+                agent_output = agent_output.model_dump()
+            elif hasattr(agent_output, "dict"):
+                agent_output = agent_output.dict()
+            # Handle JSON strings
+            elif isinstance(agent_output, str):
+                try:
+                    agent_output = json.loads(agent_output)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse agent_output as JSON: {e}")
+                    agent_output = None
+
         return ExecutionResult(
             steps=steps,
             agent_output=agent_output
@@ -82,7 +106,7 @@ class AiTestRunner(BaseTestRunner):
         if has_validations:
             # Add validation-specific instructions
             task += "\n\nIMPORTANT: Your job is to fill in the blanks within the above with the correct information found using your actions and exploration."
-            task += " Return your answers in the 'validations' field as {\"1\": \"answer\", \"2\": \"answer\", ...}"
+            task += " Return your answers in the 'validations' field as a list of objects: [{\"index\": \"1\", \"answer\": \"answer\"}, ...]"
         else:
             # Standard instructions
             task += " Please provide a usability score (1-10) and list any redundant steps in the final output."

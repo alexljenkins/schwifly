@@ -89,8 +89,42 @@ async def run_test(
         # New inline validation approach
         agent_validations = {}
         if execution_result and execution_result.agent_output:
-            agent_validations = execution_result.agent_output.get("validations", {})
-        
+            # agent_output is likely a dict due to ExecutionResult definition
+            output_data = execution_result.agent_output
+            
+            raw_validations = []
+            if isinstance(output_data, dict):
+                raw_validations = output_data.get("validations", [])
+            elif hasattr(output_data, "validations"):
+                raw_validations = output_data.validations
+                
+            # Convert list of ValidationItem (or dicts) to dict for comparison
+            with open("/tmp/debug_schwifly.txt", "a") as f:
+                f.write(f"DEBUG: raw_validations type: {type(raw_validations)}\n")
+                f.write(f"DEBUG: raw_validations content: {raw_validations}\n")
+
+            if isinstance(raw_validations, list):
+                for item in raw_validations:
+                    # Handle both object and dict representation of items
+                    idx = None
+                    ans = None
+                    
+                    if isinstance(item, dict):
+                        idx = item.get("index")
+                        ans = item.get("answer")
+                    elif hasattr(item, "index") and hasattr(item, "answer"):
+                        idx = item.index
+                        ans = item.answer
+                    
+                    if idx and ans:
+                        agent_validations[str(idx)] = str(ans)
+            elif isinstance(raw_validations, dict):
+                 agent_validations = raw_validations
+            
+            with open("/tmp/debug_schwifly.txt", "a") as f:
+                f.write(f"DEBUG: agent_validations: {agent_validations}\n")
+                f.write(f"DEBUG: expected keys: {list(parsed_process.validations.keys())}\n")
+
         # Compare agent responses against ground truth
         rule_results = await validation_comparison.compare(
             expected=parsed_process.validations,
