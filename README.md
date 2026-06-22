@@ -1,168 +1,70 @@
 # Schwifly
 
-Convert and run ALL your user stories and feature tickets as UI/UX tests!
+Turn user stories into self-maintaining web tests. **The deterministic workflow runs every
+time; the AI is the backup that only kicks in when a step fails** — it heals the step, writes
+the fix back into the workflow, and re-runs. If it genuinely can't, the test fails for real.
 
-Schwifly is your AI browser agent that tests the functionality of your web application or website based on your customer centric Jira/Linear tickets.
+Black-box: works on any web app you can reach, no backend or special access required.
 
-## Value Proposition
+## How it works
 
-- **Natural Language Testing**: Write test cases in plain English or don't write them at all and simply feed in your engineers' work tickets.
-- **Intelligent Automation**: AI agents navigate your application like real users, adapting to UI changes without brittle selectors.
-- **AI Generated Procedures**:Run rule based procedures (created schwifly from your user stories and AI walkthroughs) to use first for each test. Reducing costs and increasing speed. Using AI to validate changes (where tests fail) haven't actually broken anything.
-- **Modular Architecture**: Built on a robust service-oriented architecture (Execution, Validation, Telemetry) for reliability and scalability
-- **Unified Observability**: Real-time, rich logs and reports to find real bugs and regressions fast!
-
-## Use Cases
-
-- **Regression Testing**: Validate critical user flows (login, checkout, navigation) haven't broken after deployments
-- **CI/CD Integration**: Run automated UX tests in your pipeline to catch issues before production
-- **Cross-Environment Testing**: Test the same flows across staging, production, or different environments with credential overrides
-- **Usability Validation**: Verify that user stories and acceptance criteria are actually achievable in your application
-
----
-
-## Installation
-
-### Prerequisites
-
-- Python 3.12+
-- Poetry (for dependency management)
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd schwifly
-   ```
-
-2. **Install dependencies**
-   ```bash
-   poetry install
-   ```
-
-3. **Install Playwright browsers**
-   ```bash
-   poetry run playwright install
-   ```
-
-4. **Configure environment variables**
-   
-   Create a `.env` file in the project root:
-   ```bash
-   GOOGLE_API_KEY=your_google_api_key_here
-   HEADLESS=true
-   MAX_CONCURRENT_TESTS=5
-   TIMEOUT_SEC=300
-   ```
-
----
-
-## Quick Start
-
-### 1. Create a Test File
-
-Create a `tests.json` file with your test definitions:
-
-```json
-[
-  {
-    "test_id": "homepage_load",
-    "process": "Navigate to the homepage and verify it loads successfully",
-    "validation": [
-      "Page title contains 'Welcome'",
-      "No error messages are displayed"
-    ],
-    "starting_url": "https://example.com"
-  }
-]
+```
+Story (plain English)  ──►  Workflow (.spec.ts, deterministic)
+                                   │
+                            Runner (PRIMARY) ── Playwright, parallel, login via storageState
+                                   │ step's locator fails?
+                            Resolver (BACKUP) ── re-find the element by intent
+                                   │
+                  ┌────────────────┼─────────────────┐
+              heals + re-runs   can't heal but     genuinely
+              → writes the fix  task possible      impossible
+                back to the     → flag             → REAL FAIL
+                .spec.ts
 ```
 
-### 2. Run Your Tests
+A **Workflow** is a real Playwright spec. Each step is deterministic-first:
+
+```ts
+await step(page, { intent: 'click the Sign in button', locator: '#signin', action: 'click' },
+           { resolver: heal, file: here });
+```
+
+It tries `#signin`. If that fails, the resolver finds the element by `intent`; on success the
+healed locator is written back into this file — so "updating the workflow" is just a git diff
+on one string.
+
+### Two-tier AI backup (one `Resolver` seam)
+
+1. **`PlaywrightHeuristicResolver`** — no LLM, no key. Re-finds by accessible name / role / text
+   (the id changed, the element didn't). Recovers the common case the way Playwright's Healer does.
+2. **`StagehandResolver`** — LLM escalation for the hard cases. Agent-agnostic (Gemini / OpenAI /
+   Anthropic via Stagehand). Bring your own key. *Wired, not yet run live — verify before relying on it.*
+
+## Stack
+
+TypeScript · [Playwright](https://playwright.dev) (Apache-2.0) · [Stagehand](https://stagehand.dev)
+(MIT, local). The only cost is your own LLM key for tier-2 heals (Gemini Flash ≈ free); everything
+else runs locally.
+
+## Quick start
 
 ```bash
-# Activate the Poetry shell
-poetry shell
+npm install
+npx playwright install chromium
 
-# Run tests
-schwifly run tests.json
+npm run verify          # prove the hero loop (5 tests, real browser, no key needed)
+npm run schwifly run    # run the workflows in workflows/, then apply any AI heals
 ```
 
-That's it! Schwifly will launch a browser, execute your test using AI agents, and report the results in real-time.
+## Roadmap
+
+v1 (here): stories → workflow → run → self-heal, local CLI. Later, reusing the same engine:
+crawl/explore an app to auto-generate stories, the site Map (anywhere→anywhere), usability /
+findability / dark-pattern Scores, support-flow sharing, and live AI-cursor guidance.
 
 ---
 
-## Architecture
+> The previous Python (`browser-use`) prototype is still in the tree (`schwifly/`, `procedures/`,
+> `pyproject.toml`) and will be removed once this rebuild is confirmed.
 
-Schwifly is built on a modern, modular architecture designed for maintainability and extensibility:
-
-- **Execution Service**: Orchestrates AI agents and procedural replay (coming soon) to perform test steps.
-- **Validation Service**: Uses LLMs to evaluate test outcomes against natural language rules.
-- **Telemetry Service**: A unified pipeline that streams events to the console (via Rich) and file logs.
-- **Artifact Service**: Manages the storage of test reports, screenshots, and logs.
-- **Unified Data Models**: Uses a standardized `Step` model throughout the lifecycle, ensuring consistency from execution to reporting.
-
----
-
-## CLI Usage
-
-### Basic Commands
-
-```bash
-# Run all tests in a file
-schwifly run tests.json
-
-# Run with visible browser (non-headless)
-schwifly run tests.json --no-headless
-
-# Run with procedural validation enabled
-schwifly run tests.json --procedural
-
-# Override environment
-schwifly run tests.json --env staging
-```
-
-### CLI Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `--headless / --no-headless` | flag | Run browser in headless mode (overrides `.env`) |
-| `--procedural / --no-procedural` | flag | Enable procedural test validation |
-| `--env TEXT` | string | Specify environment (e.g., `staging`, `production`) |
-
----
-
-## Output & Results
-
-Schwifly provides a premium CLI experience powered by `rich`:
-
-- **Real-time Streaming**: Watch steps execute live with color-coded status.
-- **Detailed Verdicts**: See exactly which validation rules passed or failed.
-- **Summary Table**: A clean final summary of all tests run.
-- **Artifacts**: JSON reports and logs saved to `artifacts/<run_id>/`.
-
-### Example Output
-
-```
-Running 1 tests...
-[10:00:01] [login_flow] [magenta]Starting Test: Log in and verify dashboard[/magenta]
-[10:00:05] [login_flow] [success][SUCCESS][/success] navigate
-[10:00:08] [login_flow] [success][SUCCESS][/success] fill_form
-[10:00:12] [login_flow] [success][SUCCESS][/success] click
-[10:00:15] [login_flow] [success]Test Verdict: PASSED[/success]
-[10:00:15] [login_flow] [success][PASS] Finished Test in 14.20s[/success]
-
-Test Summary
-┏━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ Test ID    ┃ Status ┃ Duration (s) ┃
-┡━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━┩
-│ login_flow │ PASS   │        14.20 │
-└────────────┴────────┴──────────────┘
-Success Rate: 1/1 (100.0%)
-```
-
----
-
-## License
-
-Copyright Alex Jenkins 2025
+Copyright Alex Jenkins 2026

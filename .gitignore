@@ -208,3 +208,10 @@ __marimo__/
 
 artifacts/
 zz_*
+
+# Node / TypeScript rebuild
+node_modules/
+.schwifly/
+test-results/
+playwright-report/
+*.tsbuildinfo
