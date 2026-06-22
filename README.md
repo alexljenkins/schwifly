@@ -129,6 +129,13 @@ heals stale locators on push and auto-commits the diff.
 (anywhere→anywhere), regression / findability / dark-pattern Scores, support-flow sharing, and live
 AI-cursor guidance. Full status in [`TODO.md`](./TODO.md).
 
+## License
+
+Licensed under the [PolyForm Small Business License 1.0.0](./LICENSE.md) — free to use for small
+businesses (fewer than 100 people and under $1M/yr revenue); other use requires a separate license.
+
+> Required Notice: Copyright Alex Jenkins 2026
+
 ---
 
 Copyright Alex Jenkins 2026

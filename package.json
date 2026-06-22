@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "description": "Deterministic-workflow-first web test platform; AI is the failure-backup that heals and updates the workflow.",
   "type": "module",
+  "author": "Alex Jenkins",
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "schwifly": "tsx src/cli.ts",
     "verify": "playwright test tests/",
