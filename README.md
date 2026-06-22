@@ -37,8 +37,40 @@ on one string.
 
 1. **`PlaywrightHeuristicResolver`** — no LLM, no key. Re-finds by accessible name / role / text
    (the id changed, the element didn't). Recovers the common case the way Playwright's Healer does.
-2. **`StagehandResolver`** — LLM escalation for the hard cases. Agent-agnostic (Gemini / OpenAI /
-   Anthropic via Stagehand). Bring your own key. *Wired, not yet run live — verify before relying on it.*
+2. **`StagehandResolver`** (escalation tier) — LLM heal for the hard cases the heuristic can't
+   touch. Agent-agnostic (Gemini / OpenAI / Anthropic via Stagehand, swap with `SCHWIFLY_MODEL`).
+   Bring your own key. **Proven live** on `gemini-2.5-flash` (healed a no-accessible-name toggle the
+   heuristic couldn't); it's wrapped in an `EscalatingResolver` so the LLM only fires when the
+   heuristic returns `null` **and** a key exists — cost stays off the happy path. Key-gated, so
+   `npm run verify` skips it and stays free.
+
+### Verdicts & exit codes
+
+`schwifly run` joins Playwright's JSON report with the heal/step logs and prints a per-workflow
+verdict table over four states, then sets the exit code so CI can trust it:
+
+| Verdict | Meaning | Exit |
+|---|---|---|
+| **pass** | ran deterministically, no heal needed | 0 |
+| **healed** | a step broke, the AI fixed it + wrote the one-line diff back | 0 (healed = success) |
+| **fail** | the step genuinely failed | 1 |
+| **impossible** | the resolver gave up (`resolver returned null`) | 1 |
+
+`NO_COLOR=1` / non-TTY strips ANSI. Assertions use `expectVisible` / `expectText` (exact, with a
+contains fallback) so a story's `<validate>` maps to a real check.
+
+### Generate a workflow from a story
+
+```bash
+# plain English (+ inline <validate>X</validate>) → a runnable, healable .spec.ts
+# (the `--` separator is required so npm forwards --url to the CLI; a key is needed for discovery)
+GEMINI_API_KEY=… npm run schwifly gen "Open pricing and check the Pro plan costs 19" -- --url https://example.com
+```
+
+`gen` parses the story offline (key-free), then discovers a stable locator per intent by driving a
+live browser once (LLM, key-gated) and emits a `step()`-based spec. The story parser is offline-
+testable; only the locator discovery needs a key (no key → it refuses with a clear message, no
+network call).
 
 ## Login-gated apps (auth)
 
@@ -54,8 +86,9 @@ the Playwright-native way — no backend, no special access:
 
 Credentials come from the environment (see `.env.example`): copy to `.env` (gitignored) and run with
 `node --env-file=.env`. **A `storageState` JSON is a credential** — it lives under `.schwifly/`
-(gitignored) and is never committed or logged; secrets are scrubbed through `redact()` at every
-print/persist boundary.
+(gitignored) and is never committed. Secrets are scrubbed through `redact()` on the login path;
+extending that seam across the heal/step logs + CLI output is the open `secrets-redaction` task
+(see [`TODO.md`](./TODO.md)).
 
 > **One shared account by design (YAGNI).** Per-worker multi-account (`testInfo.parallelIndex`) is a
 > deliberate non-goal: the single shared session is also what lets the Stagehand AI backup stay
@@ -73,15 +106,28 @@ else runs locally.
 npm install
 npx playwright install chromium
 
-npm run verify          # prove the hero loop (real browser, no key needed)
-npm run schwifly run    # run the workflows in workflows/, then apply any AI heals
+npm run verify          # prove the hero loop (real browser, no key needed) → 19 passed, 2 key-gated skips
+npm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
+npm run typecheck
 ```
+
+For the AI tier, drop a key in `.env` (`GEMINI_API_KEY=…`) and run with `node --env-file=.env`. The
+two live witnesses (`tests/shared-cdp.spec.ts`, `tests/live-tier2.spec.ts`) skip without a key.
 
 ## Roadmap
 
-v1 (here): stories → workflow → run → self-heal, local CLI. Later, reusing the same engine:
-crawl/explore an app to auto-generate stories, the site Map (anywhere→anywhere), usability /
-findability / dark-pattern Scores, support-flow sharing, and live AI-cursor guidance.
+**v1 — built & verified (this branch):** story → workflow → run → self-heal, local CLI. Shipped:
+deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM escalation), 4-state
+verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
+shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), and `storageState` auth.
+
+**Next (ground the loop):** make heal write-back process-safe under `fullyParallel`; finish wiring
+`redact()` into the heal/step logs + CLI output; `schwifly record` (codegen → spec); a CI loop that
+heals stale locators on push and auto-commits the diff.
+
+**Later (reuse the same engine):** crawl/explore an app to auto-generate stories, the site Map
+(anywhere→anywhere), regression / findability / dark-pattern Scores, support-flow sharing, and live
+AI-cursor guidance. Full status in [`TODO.md`](./TODO.md).
 
 ---
 
