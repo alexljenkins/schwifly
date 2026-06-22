@@ -7,13 +7,13 @@ import { dirname } from 'node:path';
 // by intent. A successful heal is recorded so the locator can be written back into the
 // source — "updating the workflow" is then just a git diff on one string.
 
-export type Action = 'click' | 'fill' | 'expectVisible';
+export type Action = 'click' | 'fill' | 'expectVisible' | 'expectText';
 
 export interface StepSpec {
   intent: string;   // plain-English goal, e.g. "click the Sign in button"
   locator: string;  // Playwright selector tried first (CSS / text= / role= / xpath=)
   action?: Action;  // defaults to 'click'
-  value?: string;   // for 'fill'
+  value?: string;   // for 'fill' and 'expectText' (the asserted text)
 }
 
 export interface Resolver {
@@ -29,6 +29,7 @@ export interface StepResult {
   usedLocator: string;
   healedFrom?: string;
   error?: string;
+  file?: string;     // source spec path, so a logged result maps back to its workflow
 }
 
 export interface StepOptions {
@@ -36,6 +37,7 @@ export interface StepOptions {
   timeout?: number;
   file?: string;     // source spec path, for write-back
   healLog?: string;  // ndjson sink for heal records
+  stepLog?: string;  // ndjson sink for StepResults (surfaces 'impossible' to the CLI)
 }
 
 export interface HealRecord {
@@ -46,6 +48,7 @@ export interface HealRecord {
 }
 
 const DEFAULT_HEAL_LOG = '.schwifly/heals.ndjson';
+const DEFAULT_STEP_LOG = '.schwifly/steps.ndjson';
 
 async function act(loc: Locator, spec: StepSpec, timeout: number): Promise<void> {
   switch (spec.action ?? 'click') {
@@ -58,17 +61,33 @@ async function act(loc: Locator, spec: StepSpec, timeout: number): Promise<void>
     case 'expectVisible':
       await expect(loc).toBeVisible({ timeout });
       break;
+    case 'expectText': {
+      // The <validate>X</validate> check. Exact text-equals first; fall back to contains
+      // so trimming / surrounding markup ("$19/month") still satisfies a value of "19".
+      const want = spec.value ?? '';
+      try {
+        await expect(loc).toHaveText(want, { timeout });
+      } catch {
+        await expect(loc).toContainText(want, { timeout });
+      }
+      break;
+    }
   }
 }
 
-function recordHeal(rec: HealRecord, healLog: string): void {
-  mkdirSync(dirname(healLog), { recursive: true });
-  appendFileSync(healLog, JSON.stringify(rec) + '\n');
+function appendNdjson(path: string, rec: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, JSON.stringify(rec) + '\n');
 }
 
 export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): Promise<StepResult> {
   const timeout = opts.timeout ?? 5000;
+  const result = await runStep(page, spec, opts, timeout);
+  appendNdjson(opts.stepLog ?? DEFAULT_STEP_LOG, { ...result, file: opts.file });
+  return { ...result, file: opts.file };
+}
 
+async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: number): Promise<StepResult> {
   try {
     await act(page.locator(spec.locator), spec, timeout);
     return { intent: spec.intent, status: 'ok', usedLocator: spec.locator };
@@ -82,7 +101,7 @@ export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): 
     }
     try {
       await act(page.locator(healed), spec, timeout);
-      recordHeal({ file: opts.file, original: spec.locator, healed, intent: spec.intent }, opts.healLog ?? DEFAULT_HEAL_LOG);
+      appendNdjson(opts.healLog ?? DEFAULT_HEAL_LOG, { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
       return { intent: spec.intent, status: 'healed', usedLocator: healed, healedFrom: spec.locator };
     } catch (err2) {
       return { intent: spec.intent, status: 'failed', usedLocator: healed, error: String(err2) };

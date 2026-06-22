@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { Resolver, StepSpec } from './workflow';
+import { llmConfigFromEnv } from './llm';
 
 // The AI backup, in two tiers behind one Resolver seam:
 //   1. PlaywrightHeuristicResolver — no LLM, no key. First line of defence.
@@ -39,7 +40,12 @@ export class PlaywrightHeuristicResolver implements Resolver {
   }
 }
 
-function salientLabel(intent: string): string {
+// The verb map the heuristic strips out of an intent to find its salient label. Exported so
+// the generator (parseStory) phrases step intents using the SAME action verbs the healer keys
+// off -- generator and healer must agree on intent phrasing or a heal can't re-derive the label.
+export const ACTION_VERBS = ['click', 'press', 'tap', 'open', 'select', 'choose', 'go to', 'navigate to', 'fill', 'enter', 'type', 'check', 'toggle', 'see', 'view'];
+
+export function salientLabel(intent: string): string {
   return intent
     .replace(/\b(click|press|tap|open|select|choose|go to|navigate to|fill|enter|type|check|toggle|see|view|the|a|an)\b/gi, ' ')
     .replace(/\b(button|link|field|input|box|icon|menu|tab|checkbox|option|heading)\b/gi, ' ')
@@ -47,16 +53,20 @@ function salientLabel(intent: string): string {
     .trim();
 }
 
-function inferRole(intent: string): string | null {
-  const map: Record<string, string> = {
-    button: 'button',
-    link: 'link',
-    tab: 'tab',
-    checkbox: 'checkbox',
-    option: 'option',
-    heading: 'heading',
-    menu: 'menuitem',
-  };
+// noun -> ARIA role. Shared with the generator so a parsed step's role matches what the
+// heuristic infers from the same intent string.
+export const ROLE_NOUNS: Record<string, string> = {
+  button: 'button',
+  link: 'link',
+  tab: 'tab',
+  checkbox: 'checkbox',
+  option: 'option',
+  heading: 'heading',
+  menu: 'menuitem',
+};
+
+export function inferRole(intent: string): string | null {
+  const map = ROLE_NOUNS;
   for (const [word, role] of Object.entries(map)) {
     if (new RegExp(`\\b${word}\\b`, 'i').test(intent)) return role;
   }
@@ -76,5 +86,31 @@ export class StagehandResolver implements Resolver {
   async resolve(page: Page, spec: StepSpec): Promise<string | null> {
     const actions = await this.stagehand.observe(spec.intent, { page });
     return actions[0]?.selector ?? null;
+  }
+}
+
+// Build the Stagehand tier ONLY when a key is configured (llmConfigFromEnv() != null).
+// Without a key this returns undefined, so the AI backup makes no network call and
+// `npm run verify` stays offline. The Stagehand instance comes from the epic-3 shared-CDP
+// fixture (openSharedSession) so observe() drives the SAME DOM as step()'s Playwright locators.
+export function makeStagehandResolver(stagehand: Stagehand): StagehandResolver | undefined {
+  if (!llmConfigFromEnv()) return undefined;
+  return new StagehandResolver(stagehand);
+}
+
+// --- The two tiers, escalating -------------------------------------------------
+// "The AI is the backup": run the no-LLM heuristic FIRST, and only fall through to the
+// Stagehand LLM tier when (a) the heuristic returns null AND (b) a key exists. This keeps
+// every live LLM call off the happy path -- the heuristic resolves the common cases for free.
+export class EscalatingResolver implements Resolver {
+  private heuristic = new PlaywrightHeuristicResolver();
+  constructor(private stagehand: Stagehand) {}
+
+  async resolve(page: Page, spec: StepSpec): Promise<string | null> {
+    const cheap = await this.heuristic.resolve(page, spec);
+    if (cheap) return cheap;
+    const llm = makeStagehandResolver(this.stagehand);
+    if (!llm) return null;
+    return llm.resolve(page, spec);
   }
 }

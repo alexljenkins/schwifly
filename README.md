@@ -40,6 +40,27 @@ on one string.
 2. **`StagehandResolver`** — LLM escalation for the hard cases. Agent-agnostic (Gemini / OpenAI /
    Anthropic via Stagehand). Bring your own key. *Wired, not yet run live — verify before relying on it.*
 
+## Login-gated apps (auth)
+
+Most real apps hide everything behind a login. schwifly captures a session **once** and reuses it,
+the Playwright-native way — no backend, no special access:
+
+- A `setup` project runs `workflows/<app>.auth.setup.ts`, which logs in **via `step()`** (so the
+  login self-heals like any other step) and writes `storageState` to `.schwifly/auth/<app>.json`.
+- The `workflows` project `dependencies: ['setup']` and loads that state, so every workflow starts
+  logged in. The session is reused across runs and re-captured when stale (>24h, by mtime).
+- The `tests/` project is its OWN project with **no** storageState and **no** setup dependency, so
+  `npm run verify` stays key-free and green with no creds.
+
+Credentials come from the environment (see `.env.example`): copy to `.env` (gitignored) and run with
+`node --env-file=.env`. **A `storageState` JSON is a credential** — it lives under `.schwifly/`
+(gitignored) and is never committed or logged; secrets are scrubbed through `redact()` at every
+print/persist boundary.
+
+> **One shared account by design (YAGNI).** Per-worker multi-account (`testInfo.parallelIndex`) is a
+> deliberate non-goal: the single shared session is also what lets the Stagehand AI backup stay
+> logged in. If you ever need isolated accounts per worker, that's a future extension, not v1.
+
 ## Stack
 
 TypeScript · [Playwright](https://playwright.dev) (Apache-2.0) · [Stagehand](https://stagehand.dev)
@@ -52,7 +73,7 @@ else runs locally.
 npm install
 npx playwright install chromium
 
-npm run verify          # prove the hero loop (5 tests, real browser, no key needed)
+npm run verify          # prove the hero loop (real browser, no key needed)
 npm run schwifly run    # run the workflows in workflows/, then apply any AI heals
 ```
 
@@ -63,8 +84,5 @@ crawl/explore an app to auto-generate stories, the site Map (anywhere→anywhere
 findability / dark-pattern Scores, support-flow sharing, and live AI-cursor guidance.
 
 ---
-
-> The previous Python (`browser-use`) prototype is still in the tree (`schwifly/`, `procedures/`,
-> `pyproject.toml`) and will be removed once this rebuild is confirmed.
 
 Copyright Alex Jenkins 2026
