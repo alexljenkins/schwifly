@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test';
 import type { Resolver, StepSpec } from './workflow';
 import { llmConfigFromEnv } from './llm';
 
+const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
+
 // The AI backup, in two tiers behind one Resolver seam:
 //   1. PlaywrightHeuristicResolver — no LLM, no key. First line of defence.
 //   2. StagehandResolver           — LLM escalation for what the heuristic can't resolve.
@@ -31,11 +33,15 @@ export class PlaywrightHeuristicResolver implements Resolver {
     for (const cand of candidates) {
       try {
         const loc = page.locator(cand).first();
-        if ((await loc.count()) > 0 && (await loc.isVisible())) return cand;
+        const found = (await loc.count()) > 0 && (await loc.isVisible());
+        if (DEBUG) console.error(`[heal:heuristic] "${spec.intent}" try ${cand} -> ${found ? 'MATCH' : 'no match'}`);
+        if (found) return cand;
       } catch {
         // malformed candidate for this DOM — try the next strategy
+        if (DEBUG) console.error(`[heal:heuristic] "${spec.intent}" try ${cand} -> malformed selector`);
       }
     }
+    if (DEBUG) console.error(`[heal:heuristic] "${spec.intent}" -> no candidate matched`);
     return null;
   }
 }
@@ -85,6 +91,10 @@ export class StagehandResolver implements Resolver {
 
   async resolve(page: Page, spec: StepSpec): Promise<string | null> {
     const actions = await this.stagehand.observe(spec.intent, { page });
+    if (DEBUG) {
+      const seen = actions.map((a) => ({ selector: a.selector, description: a.description }));
+      console.error(`[heal:llm] "${spec.intent}" observe() -> ${JSON.stringify(seen)}`);
+    }
     return actions[0]?.selector ?? null;
   }
 }
@@ -109,8 +119,12 @@ export class EscalatingResolver implements Resolver {
   async resolve(page: Page, spec: StepSpec): Promise<string | null> {
     const cheap = await this.heuristic.resolve(page, spec);
     if (cheap) return cheap;
+    if (DEBUG) console.error(`[heal] "${spec.intent}" heuristic failed, escalating to LLM tier`);
     const llm = makeStagehandResolver(this.stagehand);
-    if (!llm) return null;
+    if (!llm) {
+      if (DEBUG) console.error(`[heal] "${spec.intent}" no LLM key configured, giving up`);
+      return null;
+    }
     return llm.resolve(page, spec);
   }
 }

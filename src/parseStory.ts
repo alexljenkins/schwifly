@@ -28,10 +28,13 @@ export interface ParsedStory {
 // Captures the optional type attr and the inner text. Global so we walk every occurrence.
 const VALIDATE_RE = /<validate(?:\s+type="(exact|semantic)")?\s*>(.*?)<\/validate>/g;
 
-// Map a leading verb to one of the engine's actions. fill/type/enter -> fill; everything else
-// that moves the app -> click. (expectText steps come from <validate>, not the narrative.)
+// Map a leading verb to one of the engine's actions. fill/type/enter -> fill; see/view ->
+// expectVisible (a look, not an interaction -- must not click or advance the app); everything
+// else that moves the app -> click. (expectText steps come from <validate>, not the narrative.)
 function actionFor(verb: string): Action {
-  return /^(fill|type|enter)$/i.test(verb) ? 'fill' : 'click';
+  if (/^(fill|type|enter)$/i.test(verb)) return 'fill';
+  if (/^(see|view)$/i.test(verb)) return 'expectVisible';
+  return 'click';
 }
 
 // Strip the <validate> tags from a sentence so the step intent reads naturally ("ensure the

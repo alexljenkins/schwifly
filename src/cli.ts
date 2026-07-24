@@ -17,6 +17,10 @@ const REPORT = '.schwifly/last-run.json';
 const HEAL_LOG = '.schwifly/heals.ndjson';
 const STEP_LOG = '.schwifly/steps.ndjson';
 
+// Auto-pull .env (GEMINI_API_KEY etc.) so `npm run schwifly gen ...` works without a manual
+// `node --env-file=.env` prefix. Silent no-op when .env doesn't exist.
+if (existsSync('.env')) process.loadEnvFile('.env');
+
 const args = process.argv.slice(2);
 const cmd = args[0];
 
@@ -63,6 +67,10 @@ function flag(argv: string[], name: string): string | undefined {
   return i >= 0 ? argv[i + 1] : undefined;
 }
 
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'generated';
+}
+
 async function gen(argv: string[]): Promise<void> {
   const story = argv.find((a) => !a.startsWith('--'));
   const url = flag(argv, 'url');
@@ -76,8 +84,8 @@ async function gen(argv: string[]): Promise<void> {
     console.error('schwifly gen needs an LLM key (e.g. GEMINI_API_KEY) to discover locators live.');
     process.exit(1);
   }
-  const out = flag(argv, 'out') ?? 'workflows/generated.spec.ts';
   const title = flag(argv, 'title') ?? 'generated workflow';
+  const out = flag(argv, 'out') ?? `workflows/${slugify(title)}.spec.ts`;
   const { generate } = await import('./generate');
   const spec = await generate({ title, story, url });
   mkdirSync(dirname(out), { recursive: true });

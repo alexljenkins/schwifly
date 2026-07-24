@@ -1,6 +1,7 @@
 import { type Page, type Locator, expect } from '@playwright/test';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { q } from './emit';
 
 // A Workflow is a real Playwright .spec.ts. Each step is deterministic-first: it tries a
 // concrete locator, and ONLY if that fails does the AI resolver kick in to find the element
@@ -109,13 +110,20 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
   }
 }
 
-// Write the healed locator back into the workflow source (replace the first exact occurrence).
+// Write the healed locator back into the workflow source. Anchor on the full `locator: '...'`
+// token emit wrote (via the shared q()), NOT a bare substring: a bare `src.replace('text=$20', …)`
+// splices into a DIFFERENT healthy step whose locator merely CONTAINS it (`text=$20/mo.` ->
+// `xpath=.../span[1]/mo.`). The trailing quote in `locator: '<original>'` makes the match
+// whole-token. Replacing the FIRST such token consumes exactly one occurrence, so N records for N
+// identical locators — applied in execution order by the serial CLI writer — land one-per-step.
 export function applyHeal(rec: HealRecord, fallbackFiles: string[] = []): boolean {
   const files = rec.file ? [rec.file] : fallbackFiles;
+  const from = `locator: ${q(rec.original)}`;
+  const to = `locator: ${q(rec.healed)}`;
   for (const f of files) {
     const src = readFileSync(f, 'utf8');
-    if (src.includes(rec.original)) {
-      writeFileSync(f, src.replace(rec.original, rec.healed));
+    if (src.includes(from)) {
+      writeFileSync(f, src.replace(from, to));
       return true;
     }
   }

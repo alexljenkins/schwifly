@@ -47,6 +47,8 @@ async function stableSelector(page: Page, xpath: string): Promise<string> {
   return xpath; // brittle, but a real selector the heal tier can still improve later
 }
 
+const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
+
 // Discover one stable locator per intent by observing the live DOM, advancing the app between
 // steps so later intents resolve against the right screen. ONE observe() + one act per step.
 async function discover(
@@ -58,9 +60,15 @@ async function discover(
   const actions = await stagehand.observe(intent, { page });
   const xpath = actions[0]?.selector;
   if (!xpath) throw new Error(`generate: observe() found no element for intent "${intent}"`);
+  if (DEBUG) console.error(`[gen] "${intent}" -> ${xpath} (${actions[0]?.description ?? ''})`);
   const selector = await stableSelector(page, xpath);
   // Advance the app so the next intent observes the resulting screen (assertions don't navigate).
-  if (action === 'click') await page.locator(xpath).first().click().catch(() => {});
+  if (action === 'click') {
+    await page.locator(xpath).first().click().catch(() => {});
+    // Without this, back-to-back observe() calls can fire before navigation settles, so the
+    // next intent gets matched against the pre-click DOM (silently reusing this step's element).
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  }
   return selector;
 }
 

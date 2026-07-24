@@ -103,12 +103,12 @@ else runs locally.
 ## Quick start
 
 ```bash
-npm install
+pnpm install
 npx playwright install chromium
 
-npm run verify          # prove the hero loop (real browser, no key needed) → 19 passed, 2 key-gated skips
-npm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
-npm run typecheck
+pnpm run verify          # prove the hero loop (real browser, no key needed) → 19 passed, 2 key-gated skips
+pnpm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
+pnpm run typecheck
 ```
 
 For the AI tier, drop a key in `.env` (`GEMINI_API_KEY=…`) and run with `node --env-file=.env`. The

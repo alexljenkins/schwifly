@@ -143,6 +143,50 @@ GEMINI_API_KEY="$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)" \
 
 # Remaining work — ground the loop further (no new LLM key needed for 1–4)
 
+### emit-tier2-wiring — generated specs can never reach the LLM heal tier · deps: none
+**Status:** ✅ done. `src/emit.ts` now renders the always-launch shape (mirrors
+`tests/live-tier2.spec.ts`): a `test.describe` opens `openSharedSession()` in `beforeAll`, closes
+in `afterAll`, and each generated test builds `new EscalatingResolver(session.stagehand)` and drives
+`session.page` — so every generated `schwifly run` reaches the LLM heal tier when a key is set.
+Tradeoff accepted per decision: every run launches a second Stagehand-owned Chromium via CDP, heal
+needed or not (no lazy-launch machinery built). Byte-shape test (`tests/generate.spec.ts`) updated to
+the new imports/wiring; checked-in `workflows/generated-workflow.spec.ts` regenerated to match.
+Key-free `npm run verify` unaffected (19 passed / 2 skips / 0 failed); typecheck clean.
+**Known limitation (codex review, deferred):** the shared session runs in a Stagehand-owned browser
+context, so the `workflows` project's `use.storageState` is NOT loaded — a *generated* workflow
+behind auth would run logged-out. No such consumer exists yet, and injecting storageState into
+`openSharedSession()` is new machinery the always-launch decision deliberately avoided. Fix when the
+first generated-behind-auth workflow lands (relates to [[auth-login-at-scale]]): thread the
+`storageState` path into `openSharedSession()` and apply cookies/localStorage before `goto`.
+_Original context below._
+**Status (original):** ⏳ open, discovered live: `schwifly gen` on a real story (vercel.com pricing) produced a
+runnable spec that then failed every step with `IMPOSSIBLE` / `resolver returned null` on
+`schwifly run`, even with `GEMINI_API_KEY` set. Root cause: `src/emit.ts` hardcodes
+`new PlaywrightHeuristicResolver()` into every generated `.spec.ts` — it never emits
+`EscalatingResolver`, so the LLM tier (`src/heal.ts`, proven live in `live-tier2-llm`) is
+unreachable from any generated workflow no matter what key exists. The no-LLM heuristic alone
+can't resolve descriptive, non-exact-label intents (`salientLabel()` only strips verbs + a small
+noun list — words like "page"/"plan"/"price" survive into the candidate string and never match a
+real accessible name), so any story-derived intent that isn't already an exact label is stuck.
+Two smaller bugs found + fixed alongside this: (1) `src/generate.ts` `discover()` didn't wait for
+navigation after a click, so back-to-back `observe()` calls could match the pre-navigation DOM —
+fixed with a `waitForLoadState('networkidle')` after click. (2) no visibility into resolver
+decisions during a heal — fixed with `SCHWIFLY_DEBUG=1` tracing in `src/heal.ts` (logs every
+heuristic candidate tried + Stagehand's raw `observe()` result).
+**Start here:** `src/emit.ts` (template hardcodes tier-1 only) · `src/heal.ts`
+(`EscalatingResolver`) · `src/sharedCdp.ts` (`openSharedSession`) · `tests/live-tier2.spec.ts` (the
+pattern a wired-in generated spec would need: `beforeAll` opens the shared session, uses
+`session.page` instead of Playwright's own `page` fixture).
+**Open question, needs a decision before implementing:** `openSharedSession()` launches a second,
+Stagehand-owned Chromium via CDP *unconditionally* — the key check only happens inside
+`resolve()`. Wiring `EscalatingResolver` into every generated spec the same way the live witnesses
+do it means every `schwifly run` over a generated workflow pays that second-browser-launch cost,
+even on a clean deterministic pass with no heal needed — a real deviation from the "AI only kicks
+in on failure" cost model. Alternative is a lazy-launch-on-first-failure resolver, which needs new
+machinery not present anywhere else in the codebase yet.
+**Done when:** a generated spec with a descriptive (non-exact-label) intent, run with a key, heals
+via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
+
 ### parallel-and-independent-runs — make the heal write-back process-safe · deps: none
 **Status:** ⏳ open, and it's a real latent bug. `fullyParallel:true` is on, but every worker still
 appends to one `.schwifly/heals.ndjson` (`workflow.ts` `DEFAULT_HEAL_LOG`) and the CLI mutates spec
