@@ -1,0 +1,23 @@
+{
+  "name": "schwifly",
+  "version": "0.1.0",
+  "description": "Deterministic-workflow-first web test platform; AI is the failure-backup that heals and updates the workflow.",
+  "type": "module",
+  "author": "Alex Jenkins",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "scripts": {
+    "schwifly": "tsx src/cli.ts",
+    "verify": "playwright test tests/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.6.0",
+    "@playwright/test": "^1.49.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
