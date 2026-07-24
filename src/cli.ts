@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { applyHeal, type HealRecord, type StepResult } from './workflow';
 import { buildVerdicts, renderVerdicts, exitCode, type PwReport } from './report';
+import { clearRunLogs, dedupeHeals, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
 
-// schwifly run [path]
+// schwifly run [path] [playwright options]
 //   1. run workflows in the Playwright runner (deterministic-first, parallel)
 //   2. join the JSON report with the heal + step logs -> a 4-state verdict table
 //   3. apply the AI heals back into the workflow source (git-diffable one-line locator swaps)
@@ -14,8 +15,6 @@ import { buildVerdicts, renderVerdicts, exitCode, type PwReport } from './report
 //   turn plain English (+ inline <validate>) into a healable .spec.ts by driving a live browser
 //   ONCE to discover a stable locator per intent (key-gated: needs an LLM key for observe()).
 const REPORT = '.schwifly/last-run.json';
-const HEAL_LOG = '.schwifly/heals.ndjson';
-const STEP_LOG = '.schwifly/steps.ndjson';
 
 // Auto-pull .env (GEMINI_API_KEY etc.) so `npm run schwifly gen ...` works without a manual
 // `node --env-file=.env` prefix. Silent no-op when .env doesn't exist.
@@ -37,18 +36,14 @@ if (cmd !== 'run') {
 const target = args[1] ?? 'workflows/';
 
 // Clear last run's logs so the verdict reflects ONLY this run.
-for (const f of [HEAL_LOG, STEP_LOG]) if (existsSync(f)) rmSync(f);
+clearRunLogs(HEAL_LOG);
+clearRunLogs(STEP_LOG);
 
-spawnSync('npx', ['playwright', 'test', target], { stdio: 'inherit' });
-
-const readNdjson = <T>(path: string): T[] =>
-  existsSync(path)
-    ? readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as T)
-    : [];
+spawnSync('npx', ['playwright', 'test', target, ...args.slice(2)], { stdio: 'inherit' });
 
 const report: PwReport = existsSync(REPORT) ? JSON.parse(readFileSync(REPORT, 'utf8')) : { suites: [], errors: [] };
-const heals = readNdjson<HealRecord>(HEAL_LOG);
-const steps = readNdjson<StepResult>(STEP_LOG);
+const heals = dedupeHeals(readRunLogs<HealRecord>(HEAL_LOG));
+const steps = readRunLogs<StepResult>(STEP_LOG);
 
 const verdicts = buildVerdicts(report, heals, steps);
 

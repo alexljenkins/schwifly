@@ -36,7 +36,7 @@ export function q(s: string): string {
 function stepLine(s: EmitStep): string {
   const fields = [`intent: ${q(s.intent)}`, `locator: ${q(s.locator)}`, `action: ${q(s.action)}`];
   if (s.value !== undefined) fields.push(`value: ${q(s.value)}`);
-  return `    await step(page, { ${fields.join(', ')} }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });`;
+  return `    await step(page, { ${fields.join(', ')} }, { resolver: heal, file: here });`;
 }
 
 export function emit(spec: EmitSpec): string {

@@ -61,6 +61,11 @@ export function redact<T>(value: T): T {
 // Scrub `key: value` / `key=value` pairs in free-form text (logs, error strings, CLI output).
 function redactString(text: string): string {
   let out = text;
+  const secretValues = Object.entries(process.env)
+    .filter(([key, value]) => value && isSecretKey(key))
+    .map(([, value]) => value as string)
+    .sort((a, b) => b.length - a.length);
+  for (const value of secretValues) out = out.split(value).join(REDACTED);
   for (const key of SECRET_KEYS) {
     const re = new RegExp(`\\b${key}\\b\\s*[:=]\\s*['"]?([^'"\\s]+)['"]?`, 'gi');
     out = out.replace(re, `${key}: ${REDACTED}`);

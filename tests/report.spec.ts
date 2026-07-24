@@ -6,6 +6,7 @@ import {
   type Verdict,
 } from '../src/report';
 import type { HealRecord, StepResult } from '../src/workflow';
+import { REDACTED } from '../src/secrets';
 
 // Pure unit test: synthetic Playwright-JSON + heal log + step log, no browser, no LLM.
 // Proves all 4 verdict states fall out of the join rules.
@@ -109,4 +110,21 @@ test('renderVerdicts strips ANSI under NO_COLOR and always reports the count bar
   expect(plain).toContain('1 healed');
   expect(plain).toContain('1 fail');
   expect(plain).toContain('1 impossible');
+});
+
+test('renderVerdicts redacts secrets in locator diffs', () => {
+  const saved = process.env.APP_PASSWORD;
+  process.env.APP_PASSWORD = 'known-password-123';
+  try {
+    const verdicts = buildVerdicts(report, [{
+      ...heals[0],
+      original: 'input[value="known-password-123"]',
+    }], steps);
+    const out = renderVerdicts(verdicts);
+    expect(out).toContain(REDACTED);
+    expect(out).not.toContain('known-password-123');
+  } finally {
+    if (saved === undefined) delete process.env.APP_PASSWORD;
+    else process.env.APP_PASSWORD = saved;
+  }
 });

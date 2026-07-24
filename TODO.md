@@ -27,7 +27,7 @@ bring-your-own LLM key). Node 22, ESM, `moduleResolution: Bundler`.
 
 ```bash
 npm install && npx playwright install chromium
-npm run verify       # 19 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
+npm run verify       # 26 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
 npm run schwifly run # run workflows/, print the verdict table, then apply any AI heals
 npm run schwifly gen "<story>" -- --url <start> # story → .spec.ts (note the `--`; locator discovery key-gated)
 npm run typecheck
@@ -37,7 +37,7 @@ The engine (read these first):
 - `src/workflow.ts` — `step(page, {intent, locator, action, value}, opts)`: deterministic `locator`
   first; on failure calls `opts.resolver`; records a `HealRecord`, and `applyHeal()` writes the
   healed locator back into the `.spec.ts`. Persists every `StepResult` to `opts.stepLog`
-  (`.schwifly/steps.ndjson`) so the **impossible** signal survives to the CLI. Actions:
+  (`.schwifly/steps.<parallelIndex>.ndjson`) so the **impossible** signal survives to the CLI. Actions:
   `click | fill | expectVisible | expectText`.
 - `src/heal.ts` — `PlaywrightHeuristicResolver` (no LLM; role/name/text/aria), `StagehandResolver`
   (LLM via `observe(intent,{page})→selector`), `EscalatingResolver` (heuristic first, LLM only when
@@ -188,9 +188,12 @@ machinery not present anywhere else in the codebase yet.
 via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
 
 ### parallel-and-independent-runs — make the heal write-back process-safe · deps: none
-**Status:** ⏳ open, and it's a real latent bug. `fullyParallel:true` is on, but every worker still
-appends to one `.schwifly/heals.ndjson` (`workflow.ts` `DEFAULT_HEAL_LOG`) and the CLI mutates spec
-files — under concurrency that can drop/dup heals, breaking the "clean one-line diff" guarantee.
+**Status:** ✅ done. Workers append redacted records to isolated
+`.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs; the CLI gathers them, deduplicates heals on
+`(file,original,healed)`, and applies them serially as the only spec writer. `applyHeal()` treats an
+already-applied locator as success. Key-free witnesses cover duplicate same-locator heals and
+distinct workflows healing across workers. README documents the isolation model and `--shard`
+usage (concurrent shards need separate workspaces).
 **Start here:** `src/workflow.ts` (`appendNdjson`/`DEFAULT_HEAL_LOG`) · `src/cli.ts` (serial
 post-run write-back — the safe single-writer spot) · `tests/heal.spec.ts` (witness style).
 **First steps:** per-worker heal logs via `process.env.TEST_PARALLEL_INDEX` →
@@ -203,10 +206,10 @@ green) · two specs each forcing a heal across workers → `git diff workflows/`
 sole file writer). Dedup on the full key. No lock dep, no custom worker pool. Keep resolvers stateless.
 
 ### secrets-redaction — finish wiring `redact()` at every persist/print boundary · deps: none
-**Status:** ⏳ partial. `redact()` exists in `src/secrets.ts` and is used on the auth/login path, but
-it is **not** yet applied where a heal/step record is persisted (`workflow.ts` appends raw records)
-or where the CLI prints heal diffs/verdicts (`cli.ts`). A `fill` of a password could flow into a log
-or the terminal unredacted.
+**Status:** ✅ done. The NDJSON append seam redacts every heal/step record; verdict rendering redacts
+again at the terminal boundary. `redact()` also scrubs configured password/token/API-key values
+when they appear without a key label. Witnesses prove a filled password never survives heal/step
+logs or rendered locator diffs.
 **Start here:** `src/secrets.ts` (`redact`) · `src/workflow.ts` (the two `appendNdjson` calls) ·
 `src/cli.ts` (verdict/heal-diff printing) · `src/report.ts` (`renderVerdicts`).
 **First steps:** route every persist/print of a record or value through `redact()` → witness: a step
@@ -214,9 +217,7 @@ that fills a known password → grep the heal/step log + CLI output → `***REDA
 **Watch out:** keep it ONE seam, not scattered ad-hoc scrubs.
 
 ### storageState gitignore hardening — defense-in-depth · deps: none
-**Status:** ⏳ trivial. The code only ever writes auth state under the already-ignored
-`.schwifly/auth/`, but a stray top-level `storageState*` isn't explicitly ignored. Add a
-`storageState*` line to `.gitignore` so an accidental write can't be committed.
+**Status:** ✅ done. `.gitignore` explicitly ignores `storageState*` in addition to `.schwifly/`.
 
 ### recorder-flow-to-spec — record a real flow → workflow · deps: none (key-free)
 **Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
@@ -278,7 +279,7 @@ empty `git diff`. **Watch out:** node granularity is the whole game (SPA routes 
 
 ### scores — regression now; findability + dark-pattern after the Map · deps: site-map-graph
 **Goal:** computed, honest scores as a run by-product — **regression** (passing steps / total, +
-delta vs last run; computable TODAY from `.schwifly/last-run.json` + `steps.ndjson`), **findability**
+delta vs last run; computable TODAY from `.schwifly/last-run.json` + worker step logs), **findability**
 (steps-taken / shortest-known, needs the Map), **dark-pattern** (a COUNT of named deterministic
 friction signals on the path — extra confirmations, a modal with no
 `role=button[name=/close|cancel/i]`, forced interstitials — via the a11y tree, no LLM). **No 1-10
@@ -313,7 +314,8 @@ or are still worth porting:
   `<validate(?:\s+type="(exact|semantic)")?\s*>(.*?)</validate>`). `exact` feeds `expectText`; the
   `semantic` compare path still needs the LLM (route through the tier-2 seam if/when built).
 - **Secrets redaction:** PORTED into `src/secrets.ts` (`redact` over `password/api_key/token/secret`).
-  Remaining: finish wiring it at the heal/step-log + CLI boundaries (see **secrets-redaction** above).
+  Wired at heal/step persistence and verdict-rendering boundaries; configured secret values are
+  scrubbed even without an adjacent key label.
 - **Heal-write-back policy modes:** the old `always|never|ai_success|changes` enum was deliberately
   NOT resurrected. The opinionated default stands: write back heals that re-verify green. Don't add a
   `--heal-policy` flag.
