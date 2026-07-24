@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
-import type { HealRecord } from './workflow';
 
 export const HEAL_LOG = '.schwifly/heals.ndjson';
 export const STEP_LOG = '.schwifly/steps.ndjson';
@@ -21,7 +20,11 @@ export function runLogPaths(path: string): string[] {
   const indexed = new RegExp(`^${stem}(?:\\.\\d+)?\\${ext}$`);
   return readdirSync(dir)
     .filter((file) => indexed.test(file))
-    .sort()
+    .sort(
+      (a, b) =>
+        Number(a.slice(stem.length + 1, -ext.length) || -1) -
+        Number(b.slice(stem.length + 1, -ext.length) || -1),
+    )
     .map((file) => join(dir, file));
 }
 
@@ -37,14 +40,4 @@ export function readRunLogs<T>(path: string): T[] {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as T),
   );
-}
-
-export function dedupeHeals(records: HealRecord[]): HealRecord[] {
-  const seen = new Set<string>();
-  return records.filter((record) => {
-    const key = [record.file ?? '', record.original, record.healed].join('\0');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }

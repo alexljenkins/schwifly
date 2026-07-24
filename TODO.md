@@ -88,11 +88,12 @@ Full prior + rationale: `~/repos/alex_intelligence/forge/sources/2026-06-22-rebu
 
 ---
 
-## ✅ Shipped (branch `complete-rebuild`, commit `f16b80d`)
+## ✅ Shipped
 
-Each landed RED→GREEN with witnesses; the whole suite is green key-free (19 passed / 2 key-gated
-skips / 0 failed) and typechecks clean. One live `gemini-2.5-flash` proof was run for the two AI
-substrates; everything else is key-free.
+Core v1 landed from branch `complete-rebuild` (`f16b80d`). Each item landed RED→GREEN with
+witnesses; the current suite is green key-free (26 passed / 2 key-gated skips / 0 failed) and
+typechecks clean. One live `gemini-2.5-flash` proof was run for the two AI substrates; everything
+else is key-free.
 
 - **remove-python-legacy** — deleted the dead `browser-use` prototype (~9.5k lines); preserved
   `tests.json` → `fixtures/relevance-pricing.json`; `.gitignore` trimmed to Node/TS (with `.env`
@@ -119,6 +120,15 @@ substrates; everything else is key-free.
   (self-healing login) against the free `the-internet.herokuapp.com`. 3-project config keeps
   `npm run verify` key-free. RED without state → GREEN after setup; reuse + regeneration proven;
   password → `***REDACTED***`; no `.env`/auth JSON tracked. One shared account by design (YAGNI).
+- **parallel-and-independent-runs** — workers append redacted records to isolated
+  `.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs. The CLI gathers them, deduplicates heals
+  on `(file,original,healed)`, then applies them serially as the sole workflow-source writer.
+  `applyHeal()` is idempotent; duplicate and cross-worker witnesses are green.
+- **secrets-redaction** — the NDJSON persistence seam and verdict-rendering boundary both call
+  `redact()`. Configured password/token/API-key values are scrubbed even without a key label;
+  witnesses cover heal logs, step logs, and terminal locator diffs.
+- **storageState gitignore hardening** — `.gitignore` explicitly ignores `storageState*` as
+  defense-in-depth beyond the existing `.schwifly/` ignore.
 
 ---
 
@@ -151,7 +161,7 @@ in `afterAll`, and each generated test builds `new EscalatingResolver(session.st
 Tradeoff accepted per decision: every run launches a second Stagehand-owned Chromium via CDP, heal
 needed or not (no lazy-launch machinery built). Byte-shape test (`tests/generate.spec.ts`) updated to
 the new imports/wiring; checked-in `workflows/generated-workflow.spec.ts` regenerated to match.
-Key-free `npm run verify` unaffected (19 passed / 2 skips / 0 failed); typecheck clean.
+Key-free `npm run verify` remains green (26 passed / 2 skips / 0 failed); typecheck clean.
 **Known limitation (codex review, deferred):** the shared session runs in a Stagehand-owned browser
 context, so the `workflows` project's `use.storageState` is NOT loaded — a *generated* workflow
 behind auth would run logged-out. No such consumer exists yet, and injecting storageState into
@@ -186,38 +196,6 @@ in on failure" cost model. Alternative is a lazy-launch-on-first-failure resolve
 machinery not present anywhere else in the codebase yet.
 **Done when:** a generated spec with a descriptive (non-exact-label) intent, run with a key, heals
 via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
-
-### parallel-and-independent-runs — make the heal write-back process-safe · deps: none
-**Status:** ✅ done. Workers append redacted records to isolated
-`.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs; the CLI gathers them, deduplicates heals on
-`(file,original,healed)`, and applies them serially as the only spec writer. `applyHeal()` treats an
-already-applied locator as success. Key-free witnesses cover duplicate same-locator heals and
-distinct workflows healing across workers. README documents the isolation model and `--shard`
-usage (concurrent shards need separate workspaces).
-**Start here:** `src/workflow.ts` (`appendNdjson`/`DEFAULT_HEAL_LOG`) · `src/cli.ts` (serial
-post-run write-back — the safe single-writer spot) · `tests/heal.spec.ts` (witness style).
-**First steps:** per-worker heal logs via `process.env.TEST_PARALLEL_INDEX` →
-`.schwifly/heals.<i>.ndjson` (YAGNI over file-locking) → CLI globs `heals.*.ndjson`, **dedup on
-`(file,original,healed)`**, `applyHeal` serially in the main process only → make `applyHeal`
-idempotent (already-applied = success) → document the worker/isolation model + `--shard` in README.
-**Done when:** N workers heal the SAME locator → exactly ONE diff, zero dropped (`verify` stays
-green) · two specs each forcing a heal across workers → `git diff workflows/` has each heal once.
-**Watch out:** never mutate `.spec.ts` from worker processes (workers append only; main process is
-sole file writer). Dedup on the full key. No lock dep, no custom worker pool. Keep resolvers stateless.
-
-### secrets-redaction — finish wiring `redact()` at every persist/print boundary · deps: none
-**Status:** ✅ done. The NDJSON append seam redacts every heal/step record; verdict rendering redacts
-again at the terminal boundary. `redact()` also scrubs configured password/token/API-key values
-when they appear without a key label. Witnesses prove a filled password never survives heal/step
-logs or rendered locator diffs.
-**Start here:** `src/secrets.ts` (`redact`) · `src/workflow.ts` (the two `appendNdjson` calls) ·
-`src/cli.ts` (verdict/heal-diff printing) · `src/report.ts` (`renderVerdicts`).
-**First steps:** route every persist/print of a record or value through `redact()` → witness: a step
-that fills a known password → grep the heal/step log + CLI output → `***REDACTED***`, never plaintext.
-**Watch out:** keep it ONE seam, not scattered ad-hoc scrubs.
-
-### storageState gitignore hardening — defense-in-depth · deps: none
-**Status:** ✅ done. `.gitignore` explicitly ignores `storageState*` in addition to `.schwifly/`.
 
 ### recorder-flow-to-spec — record a real flow → workflow · deps: none (key-free)
 **Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
@@ -283,7 +261,7 @@ delta vs last run; computable TODAY from `.schwifly/last-run.json` + worker step
 (steps-taken / shortest-known, needs the Map), **dark-pattern** (a COUNT of named deterministic
 friction signals on the path — extra confirmations, a modal with no
 `role=button[name=/close|cancel/i]`, forced interstitials — via the a11y tree, no LLM). **No 1-10
-vanity scales.** **Start here:** the `StepResult` stream already persists to `.schwifly/steps.ndjson`
+vanity scales.** **Start here:** the `StepResult` stream already persists to per-worker step logs
 → pure `src/scores.ts` (data-in/out, no Playwright/LLM imports) → surface in `cli.ts`. **Build only
 the regression number now**; ship findability provisional (best-run fallback) until the Map lands.
 **Watch out:** every score is a ratio of counted integers or a list of counted signals — if you can't

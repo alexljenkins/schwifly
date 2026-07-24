@@ -112,7 +112,7 @@ pnpm run typecheck
 
 Parallel workers append only to `.schwifly/heals.<parallelIndex>.ndjson` and
 `.schwifly/steps.<parallelIndex>.ndjson`. After Playwright exits, the CLI gathers the logs,
-deduplicates heals by `(file, original, healed)`, then applies them serially as the sole spec writer.
+then applies every heal record serially as the sole spec writer.
 Run a shard with `pnpm run schwifly run -- workflows/ --shard=1/2`; concurrent shards must use
 separate checkouts/workspaces because each CLI run owns its report and log lifecycle.
 

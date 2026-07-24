@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { applyHeal, type HealRecord, type StepResult } from './workflow';
 import { buildVerdicts, renderVerdicts, exitCode, type PwReport } from './report';
-import { clearRunLogs, dedupeHeals, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
+import { clearRunLogs, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
 
 // schwifly run [path] [playwright options]
 //   1. run workflows in the Playwright runner (deterministic-first, parallel)
@@ -33,16 +33,18 @@ if (cmd !== 'run') {
   process.exit(cmd ? 1 : 0);
 }
 
-const target = args[1] ?? 'workflows/';
+const hasTarget = args[1] !== undefined && !args[1].startsWith('-');
+const target = hasTarget ? args[1] : 'workflows/';
+const playwrightArgs = hasTarget ? args.slice(2) : args.slice(1);
 
 // Clear last run's logs so the verdict reflects ONLY this run.
 clearRunLogs(HEAL_LOG);
 clearRunLogs(STEP_LOG);
 
-spawnSync('npx', ['playwright', 'test', target, ...args.slice(2)], { stdio: 'inherit' });
+spawnSync('npx', ['playwright', 'test', target, ...playwrightArgs], { stdio: 'inherit' });
 
 const report: PwReport = existsSync(REPORT) ? JSON.parse(readFileSync(REPORT, 'utf8')) : { suites: [], errors: [] };
-const heals = dedupeHeals(readRunLogs<HealRecord>(HEAL_LOG));
+const heals = readRunLogs<HealRecord>(HEAL_LOG);
 const steps = readRunLogs<StepResult>(STEP_LOG);
 
 const verdicts = buildVerdicts(report, heals, steps);

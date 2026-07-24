@@ -62,7 +62,7 @@ export function redact<T>(value: T): T {
 function redactString(text: string): string {
   let out = text;
   const secretValues = Object.entries(process.env)
-    .filter(([key, value]) => value && isSecretKey(key))
+    .filter(([key, value]) => value && value.length >= 6 && isSecretKey(key))
     .map(([, value]) => value as string)
     .sort((a, b) => b.length - a.length);
   for (const value of secretValues) out = out.split(value).join(REDACTED);

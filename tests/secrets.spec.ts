@@ -39,6 +39,9 @@ test('redact scrubs configured secret values even without a key label', () => {
   try {
     const masked = redact('fill value was known-password-123');
     expect(masked).toBe(`fill value was ${REDACTED}`);
+
+    process.env.APP_PASSWORD = 'short';
+    expect(redact('short stands alone; password=short')).toBe(`short stands alone; password: ${REDACTED}`);
   } finally {
     if (saved === undefined) delete process.env.APP_PASSWORD;
     else process.env.APP_PASSWORD = saved;
