@@ -126,8 +126,9 @@ deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM esca
 verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
 shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), and `storageState` auth.
 
-**Next (ground the loop):** `schwifly record` (codegen → spec); a CI loop that heals stale locators
-on push and auto-commits the diff.
+**Next (ground the loop):** `schwifly attempt` (arbitrary request → agent discovery → clean-replayed
+deterministic spec); `schwifly record` (human/codegen → the same capture normalizer); a CI loop that
+heals stale locators on push and auto-commits the diff.
 
 **Later (reuse the same engine):** crawl/explore an app to auto-generate stories, the site Map
 (anywhere→anywhere), regression / findability / dark-pattern Scores, support-flow sharing, and live

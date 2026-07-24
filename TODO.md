@@ -197,7 +197,70 @@ machinery not present anywhere else in the codebase yet.
 **Done when:** a generated spec with a descriptive (non-exact-label) intent, run with a key, heals
 via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
 
-### recorder-flow-to-spec — record a real flow → workflow · deps: none (key-free)
+### task-to-verified-flow — arbitrary request → agent attempt → minimal deterministic workflow · deps: shared-cdp ✅, live-tier2 ✅
+**Status:** ⏳ not started. This is the primary workflow-discovery path. Company tickets vary in
+vocabulary, structure, and detail, so do NOT require Jira/user input to resemble procedural test
+steps. `schwifly attempt "<ticket text>" --url <start>` gives the raw request to a bounded browser
+agent; the agent interprets and attempts the task directly; Schwifly turns the useful observed
+actions and outcome evidence into a deterministic `.spec.ts`; then a fresh session replays it
+without the agent. Save the workflow only when that replay passes.
+
+**Core loop:**
+`arbitrary ticket/user request → bounded agent attempt → successful concrete actions + outcome
+evidence → normalize to StepSpec[] → emit .spec.ts → fresh deterministic replay → save on GREEN`.
+The agent execution is workflow **discovery**, never the persisted workflow. Future executions use
+plain Playwright first; the existing resolver remains backup only when a saved locator breaks.
+
+**Capture contract:** retain concrete browser facts, not agent reasoning: for each useful action,
+record `{intent, locator, action, value}`, pre/post URL or observable page state, and any assertion
+evidence proving the requested outcome. Exclude failed probes, retries superseded by a successful
+action, narration, and unsupported conclusions. Every retained interaction MUST pair intent with a
+real locator. Values flow through `redact()` before logs or generated source; credentials must use
+the existing env contract rather than being embedded.
+
+**Initial scope (~300–450 LOC):**
+- `src/attempt.ts` (~140–200): bounded, same-origin `agent.execute(task,{maxSteps})`; adapt its
+  action history into a provider-neutral captured-action shape; return explicit evidence/failure.
+- `src/capture.ts` (~80–120): pure captured-action → existing `StepSpec[]` normalization. Collapse
+  verbs onto `click|fill|expectVisible|expectText`; do NOT expand `Action`. Drop failed/superseded
+  probes; keep plain-string selectors; redact values.
+- `src/emit.ts` (~20–40): accept normalized steps plus final evidence assertions; reuse the current
+  template and shared-CDP/heal wiring—do not invent another execution path.
+- `src/cli.ts` (~30–50): `schwifly attempt "<request>" --url <start> [--out]`; small fixed defaults
+  for same-origin and max steps, no settings surface.
+- `tests/attempt.spec.ts` + `tests/capture.spec.ts` (~100–160): fake-agent history only, so baseline
+  stays key-free; prove failed exploration is omitted, successful actions normalize, evidence emits,
+  secrets redact, and only a GREEN clean replay is eligible to save.
+
+**Replay gate:** run emitted candidate from a new browser context/session with the autonomous agent
+disabled. The normal heuristic/LLM broken-locator backup may be disabled for this proof so discovery
+cannot certify itself by healing an inaccurate capture. Replay result is authoritative: GREEN saves;
+failure keeps the capture as redacted debug evidence but does not create/overwrite a workflow.
+Optionally allow ONE recapture/repair attempt later; no unbounded self-correction loop.
+
+**Done when:** differently worded terse and detailed task fixtures both reach the same normalized
+flow through a fake agent · exploratory failed/superseded actions do not appear in emitted source ·
+final outcome has an observable assertion, not agent testimony · generated spec typechecks · clean
+replay passes with agent disabled before file save · impossible/unsupported task exits non-zero and
+leaves no workflow · one live round-trip succeeds against a free public app.
+
+**Watch out:** Stagehand action-history fidelity/API stability is the first spike—verify it exposes
+selectors and outcomes before building the adapter. If it does not, instrument the shared page
+around agent actions; never save intent-only history. Authenticated attempts also need the deferred
+`storageState` bridge into `openSharedSession()`. Same-origin and step bounds are locked.
+
+**Later uplift — minimal required path (~100–180 LOC):** successful-only is not necessarily minimal.
+An agent may visit page A before page B even when direct navigation/action makes A unnecessary.
+After the initial replay is trustworthy, add replay-based delta debugging: try removing contiguous
+step chunks (then individual steps), always from the original start state, and retain a deletion only
+when the final outcome assertion still passes. This empirically proves necessity without asking the
+LLM to judge causality. Preserve order; never synthesize shortcuts or direct URLs not performed by
+the agent; cap replay attempts. **Revisit trigger:** captured live flows routinely contain redundant
+successful steps, measured in at least 3 examples. **Done when:** fixture `[required, redundant,
+required]` shrinks to two steps while outcome remains GREEN; state-setting/navigation prerequisites
+survive; identical input produces stable minimized output.
+
+### recorder-flow-to-spec — record a real flow → workflow · deps: capture normalizer from task-to-verified-flow
 **Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
 using `step()`. Intent labels heuristic (role+name) or AI-labeled when no human label.
 **Start here:** `src/workflow.ts` (collapse codegen's verbs onto `click|fill|expectVisible`, do NOT
@@ -227,17 +290,17 @@ behavior: write back heals that re-verify green; flag the rest.
 
 # LATER — demo & insight layers (reuse the engine; scoped placeholders until a consumer exists)
 
-### explorer-crawler — crawl an app → auto-generate stories + workflows (+ feasibility) · deps: shared-cdp ✅, live-tier2 ✅
+### explorer-crawler — crawl an app → auto-generate stories + workflows (+ feasibility) · deps: task-to-verified-flow
 **Goal:** bounded `schwifly explore <url>` autonomously walks an app (incl. behind auth), proposes a
-few user stories, emits each as a `.spec.ts` via `step()` + heuristic backup. Same verb answers
-"can I X?" → POSSIBLE (flow + difficulty) / IMPOSSIBLE (evidence).
+few user stories, then feeds each candidate through `task-to-verified-flow` rather than maintaining
+a second agent-capture/emission path. Same verb answers "can I X?" → POSSIBLE (verified flow +
+difficulty) / IMPOSSIBLE (evidence).
 **Start here:** `src/workflow.ts` (emit `step()` calls, don't invent a 2nd execution path) ·
 `src/sharedCdp.ts` + `src/heal.ts` (same shared-CDP Stagehand) · `workflows/example.spec.ts`
 (template) · Stagehand v3 `agent.execute(task,{maxSteps})` — bounded autonomous driver.
 **First steps:** `schwifly explore <url> [--depth --budget --auth]` (small defaults; bounding is
-locked) → bounded `agent.execute` constrained same-origin → harvest action history →
-`StoryCandidate[]` (each interaction paired with a concrete `observe()` locator AND intent) → render
-via the template → smoke: `explore` then `run workflows/`.
+locked) → propose bounded `StoryCandidate[]` → send each candidate into the existing attempt,
+capture, emit, and clean-replay gate → smoke: `explore` then `run workflows/`.
 **Done when:** fake-explorer witness (no LLM) emits a valid `step(...)` spec + `expectVisible`
 (RED→GREEN) · generated spec typechecks + runs through the EXISTING engine · live round-trip on one
 real free-tier app · `--budget` actually caps + stays on-origin.
