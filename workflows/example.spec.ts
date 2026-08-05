@@ -12,6 +12,6 @@ const here = fileURLToPath(import.meta.url);
 
 test('docs: reach the Installation guide', async ({ page }) => {
   await page.goto('https://playwright.dev');
-  await step(page, { intent: 'open the Docs link', locator: 'a:has-text("Docs")', action: 'click' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
-  await step(page, { intent: 'see the Installation heading', locator: 'h1:has-text("Installation")', action: 'expectVisible' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
+  await step(page, { intent: 'open the Docs link', locator: 'a:has-text("Docs")', action: 'click' }, { resolver: heal, file: here });
+  await step(page, { intent: 'see the Installation heading', locator: 'h1:has-text("Installation")', action: 'expectVisible' }, { resolver: heal, file: here });
 });

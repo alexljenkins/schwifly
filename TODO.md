@@ -27,7 +27,7 @@ bring-your-own LLM key). Node 22, ESM, `moduleResolution: Bundler`.
 
 ```bash
 npm install && npx playwright install chromium
-npm run verify       # 19 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
+npm run verify       # 26 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
 npm run schwifly run # run workflows/, print the verdict table, then apply any AI heals
 npm run schwifly gen "<story>" -- --url <start> # story → .spec.ts (note the `--`; locator discovery key-gated)
 npm run typecheck
@@ -37,7 +37,7 @@ The engine (read these first):
 - `src/workflow.ts` — `step(page, {intent, locator, action, value}, opts)`: deterministic `locator`
   first; on failure calls `opts.resolver`; records a `HealRecord`, and `applyHeal()` writes the
   healed locator back into the `.spec.ts`. Persists every `StepResult` to `opts.stepLog`
-  (`.schwifly/steps.ndjson`) so the **impossible** signal survives to the CLI. Actions:
+  (`.schwifly/steps.<parallelIndex>.ndjson`) so the **impossible** signal survives to the CLI. Actions:
   `click | fill | expectVisible | expectText`.
 - `src/heal.ts` — `PlaywrightHeuristicResolver` (no LLM; role/name/text/aria), `StagehandResolver`
   (LLM via `observe(intent,{page})→selector`), `EscalatingResolver` (heuristic first, LLM only when
@@ -88,11 +88,12 @@ Full prior + rationale: `~/repos/alex_intelligence/forge/sources/2026-06-22-rebu
 
 ---
 
-## ✅ Shipped (branch `complete-rebuild`, commit `f16b80d`)
+## ✅ Shipped
 
-Each landed RED→GREEN with witnesses; the whole suite is green key-free (19 passed / 2 key-gated
-skips / 0 failed) and typechecks clean. One live `gemini-2.5-flash` proof was run for the two AI
-substrates; everything else is key-free.
+Core v1 landed from branch `complete-rebuild` (`f16b80d`). Each item landed RED→GREEN with
+witnesses; the current suite is green key-free (26 passed / 2 key-gated skips / 0 failed) and
+typechecks clean. One live `gemini-2.5-flash` proof was run for the two AI substrates; everything
+else is key-free.
 
 - **remove-python-legacy** — deleted the dead `browser-use` prototype (~9.5k lines); preserved
   `tests.json` → `fixtures/relevance-pricing.json`; `.gitignore` trimmed to Node/TS (with `.env`
@@ -119,6 +120,15 @@ substrates; everything else is key-free.
   (self-healing login) against the free `the-internet.herokuapp.com`. 3-project config keeps
   `npm run verify` key-free. RED without state → GREEN after setup; reuse + regeneration proven;
   password → `***REDACTED***`; no `.env`/auth JSON tracked. One shared account by design (YAGNI).
+- **parallel-and-independent-runs** — workers append redacted records to isolated
+  `.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs. The CLI gathers them, deduplicates heals
+  on `(file,original,healed)`, then applies them serially as the sole workflow-source writer.
+  `applyHeal()` is idempotent; duplicate and cross-worker witnesses are green.
+- **secrets-redaction** — the NDJSON persistence seam and verdict-rendering boundary both call
+  `redact()`. Configured password/token/API-key values are scrubbed even without a key label;
+  witnesses cover heal logs, step logs, and terminal locator diffs.
+- **storageState gitignore hardening** — `.gitignore` explicitly ignores `storageState*` as
+  defense-in-depth beyond the existing `.schwifly/` ignore.
 
 ---
 
@@ -151,7 +161,7 @@ in `afterAll`, and each generated test builds `new EscalatingResolver(session.st
 Tradeoff accepted per decision: every run launches a second Stagehand-owned Chromium via CDP, heal
 needed or not (no lazy-launch machinery built). Byte-shape test (`tests/generate.spec.ts`) updated to
 the new imports/wiring; checked-in `workflows/generated-workflow.spec.ts` regenerated to match.
-Key-free `npm run verify` unaffected (19 passed / 2 skips / 0 failed); typecheck clean.
+Key-free `npm run verify` remains green (26 passed / 2 skips / 0 failed); typecheck clean.
 **Known limitation (codex review, deferred):** the shared session runs in a Stagehand-owned browser
 context, so the `workflows` project's `use.storageState` is NOT loaded — a *generated* workflow
 behind auth would run logged-out. No such consumer exists yet, and injecting storageState into
@@ -187,38 +197,80 @@ machinery not present anywhere else in the codebase yet.
 **Done when:** a generated spec with a descriptive (non-exact-label) intent, run with a key, heals
 via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
 
-### parallel-and-independent-runs — make the heal write-back process-safe · deps: none
-**Status:** ⏳ open, and it's a real latent bug. `fullyParallel:true` is on, but every worker still
-appends to one `.schwifly/heals.ndjson` (`workflow.ts` `DEFAULT_HEAL_LOG`) and the CLI mutates spec
-files — under concurrency that can drop/dup heals, breaking the "clean one-line diff" guarantee.
-**Start here:** `src/workflow.ts` (`appendNdjson`/`DEFAULT_HEAL_LOG`) · `src/cli.ts` (serial
-post-run write-back — the safe single-writer spot) · `tests/heal.spec.ts` (witness style).
-**First steps:** per-worker heal logs via `process.env.TEST_PARALLEL_INDEX` →
-`.schwifly/heals.<i>.ndjson` (YAGNI over file-locking) → CLI globs `heals.*.ndjson`, **dedup on
-`(file,original,healed)`**, `applyHeal` serially in the main process only → make `applyHeal`
-idempotent (already-applied = success) → document the worker/isolation model + `--shard` in README.
-**Done when:** N workers heal the SAME locator → exactly ONE diff, zero dropped (`verify` stays
-green) · two specs each forcing a heal across workers → `git diff workflows/` has each heal once.
-**Watch out:** never mutate `.spec.ts` from worker processes (workers append only; main process is
-sole file writer). Dedup on the full key. No lock dep, no custom worker pool. Keep resolvers stateless.
+### task-to-verified-flow — arbitrary request → agent attempt → minimal deterministic workflow · deps: shared-cdp ✅, live-tier2 ✅
+**Status:** ⏳ not started. This is the primary workflow-discovery path. Company tickets vary in
+vocabulary, structure, and detail, so do NOT require Jira/user input to resemble procedural test
+steps. `schwifly attempt "<ticket text>" --url <start>` gives the raw request to a bounded browser
+agent; the agent interprets and attempts the task directly; Schwifly turns the useful observed
+actions and outcome evidence into a deterministic `.spec.ts`; then a fresh session replays it
+without the agent. Save the workflow only when that replay passes.
 
-### secrets-redaction — finish wiring `redact()` at every persist/print boundary · deps: none
-**Status:** ⏳ partial. `redact()` exists in `src/secrets.ts` and is used on the auth/login path, but
-it is **not** yet applied where a heal/step record is persisted (`workflow.ts` appends raw records)
-or where the CLI prints heal diffs/verdicts (`cli.ts`). A `fill` of a password could flow into a log
-or the terminal unredacted.
-**Start here:** `src/secrets.ts` (`redact`) · `src/workflow.ts` (the two `appendNdjson` calls) ·
-`src/cli.ts` (verdict/heal-diff printing) · `src/report.ts` (`renderVerdicts`).
-**First steps:** route every persist/print of a record or value through `redact()` → witness: a step
-that fills a known password → grep the heal/step log + CLI output → `***REDACTED***`, never plaintext.
-**Watch out:** keep it ONE seam, not scattered ad-hoc scrubs.
+**Core loop:**
+`arbitrary ticket/user request → bounded agent attempt → successful concrete actions + outcome
+evidence → normalize to StepSpec[] → emit .spec.ts → fresh deterministic replay → save on GREEN`.
+The agent execution is workflow **discovery**, never the persisted workflow. Future executions use
+plain Playwright first; the existing resolver remains backup only when a saved locator breaks.
 
-### storageState gitignore hardening — defense-in-depth · deps: none
-**Status:** ⏳ trivial. The code only ever writes auth state under the already-ignored
-`.schwifly/auth/`, but a stray top-level `storageState*` isn't explicitly ignored. Add a
-`storageState*` line to `.gitignore` so an accidental write can't be committed.
+**Capture contract:** retain concrete browser facts, not agent reasoning: for each useful action,
+record `{intent, locator, action, value}`, pre/post URL or observable page state, and any assertion
+evidence proving the requested outcome. Exclude failed probes, retries superseded by a successful
+action, narration, and unsupported conclusions. Every retained interaction MUST pair intent with a
+real locator. Values flow through `redact()` before logs or generated source; credentials must use
+the existing env contract rather than being embedded.
 
-### recorder-flow-to-spec — record a real flow → workflow · deps: none (key-free)
+**Initial scope (~300–450 LOC):**
+- `src/attempt.ts` (~140–200): bounded, same-origin `agent.execute(task,{maxSteps})`; adapt its
+  action history into a provider-neutral captured-action shape; return explicit evidence/failure.
+- `src/capture.ts` (~80–120): pure captured-action → existing `StepSpec[]` normalization. Collapse
+  verbs onto `click|fill|expectVisible|expectText`; do NOT expand `Action`. Drop failed/superseded
+  probes; keep plain-string selectors; redact values.
+- `src/emit.ts` (~20–40): accept normalized steps plus final evidence assertions; reuse the current
+  template and shared-CDP/heal wiring—do not invent another execution path.
+- `src/cli.ts` (~30–50): `schwifly attempt "<request>" --url <start> [--out] [--visible]`; small
+  fixed defaults for same-origin and max steps. `--visible` opens the agent-discovery browser headed
+  so a person can watch it click through and find the solution—an explicit demo/debug switch, not a
+  different execution mode. Reuse the existing `SCHWIFLY_HEADED=1` launch seam internally.
+- `tests/attempt.spec.ts` + `tests/capture.spec.ts` (~100–160): fake-agent history only, so baseline
+  stays key-free; prove failed exploration is omitted, successful actions normalize, evidence emits,
+  secrets redact, and only a GREEN clean replay is eligible to save.
+
+**Replay gate:** run emitted candidate from a new browser context/session with the autonomous agent
+disabled. The normal heuristic/LLM broken-locator backup may be disabled for this proof so discovery
+cannot certify itself by healing an inaccurate capture. Replay result is authoritative: GREEN saves;
+failure keeps the capture as redacted debug evidence but does not create/overwrite a workflow.
+Optionally allow ONE recapture/repair attempt later; no unbounded self-correction loop.
+
+**Done when:** differently worded terse and detailed task fixtures both reach the same normalized
+flow through a fake agent · exploratory failed/superseded actions do not appear in emitted source ·
+final outcome has an observable assertion, not agent testimony · generated spec typechecks · clean
+replay passes with agent disabled before file save · impossible/unsupported task exits non-zero and
+leaves no workflow · one live round-trip succeeds against a free public app.
+
+**Demo visibility:** default remains headless for automation. With `--visible`, show the exact same
+bounded discovery attempt in the Stagehand-owned Chromium; stream concise current intent/action
+labels to the terminal so viewers can follow progress. Do not add an artificial demo-only solution,
+DOM overlay, or separate capture path. The clean replay gate still runs and must pass; it may remain
+headless because the useful demo is watching the agent discover the flow. **Done when:** the live
+round-trip can be watched end-to-end and produces byte-identical captured output with/without the
+flag.
+
+**Watch out:** Stagehand action-history fidelity/API stability is the first spike—verify it exposes
+selectors and outcomes before building the adapter. If it does not, instrument the shared page
+around agent actions; never save intent-only history. Authenticated attempts also need the deferred
+`storageState` bridge into `openSharedSession()`. Same-origin and step bounds are locked.
+
+**Later uplift — minimal required path (~100–180 LOC):** successful-only is not necessarily minimal.
+An agent may visit page A before page B even when direct navigation/action makes A unnecessary.
+After the initial replay is trustworthy, add replay-based delta debugging: try removing contiguous
+step chunks (then individual steps), always from the original start state, and retain a deletion only
+when the final outcome assertion still passes. This empirically proves necessity without asking the
+LLM to judge causality. Preserve order; never synthesize shortcuts or direct URLs not performed by
+the agent; cap replay attempts. **Revisit trigger:** captured live flows routinely contain redundant
+successful steps, measured in at least 3 examples. **Done when:** fixture `[required, redundant,
+required]` shrinks to two steps while outcome remains GREEN; state-setting/navigation prerequisites
+survive; identical input produces stable minimized output.
+
+### recorder-flow-to-spec — record a real flow → workflow · deps: capture normalizer from task-to-verified-flow
 **Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
 using `step()`. Intent labels heuristic (role+name) or AI-labeled when no human label.
 **Start here:** `src/workflow.ts` (collapse codegen's verbs onto `click|fill|expectVisible`, do NOT
@@ -248,17 +300,17 @@ behavior: write back heals that re-verify green; flag the rest.
 
 # LATER — demo & insight layers (reuse the engine; scoped placeholders until a consumer exists)
 
-### explorer-crawler — crawl an app → auto-generate stories + workflows (+ feasibility) · deps: shared-cdp ✅, live-tier2 ✅
+### explorer-crawler — crawl an app → auto-generate stories + workflows (+ feasibility) · deps: task-to-verified-flow
 **Goal:** bounded `schwifly explore <url>` autonomously walks an app (incl. behind auth), proposes a
-few user stories, emits each as a `.spec.ts` via `step()` + heuristic backup. Same verb answers
-"can I X?" → POSSIBLE (flow + difficulty) / IMPOSSIBLE (evidence).
+few user stories, then feeds each candidate through `task-to-verified-flow` rather than maintaining
+a second agent-capture/emission path. Same verb answers "can I X?" → POSSIBLE (verified flow +
+difficulty) / IMPOSSIBLE (evidence).
 **Start here:** `src/workflow.ts` (emit `step()` calls, don't invent a 2nd execution path) ·
 `src/sharedCdp.ts` + `src/heal.ts` (same shared-CDP Stagehand) · `workflows/example.spec.ts`
 (template) · Stagehand v3 `agent.execute(task,{maxSteps})` — bounded autonomous driver.
 **First steps:** `schwifly explore <url> [--depth --budget --auth]` (small defaults; bounding is
-locked) → bounded `agent.execute` constrained same-origin → harvest action history →
-`StoryCandidate[]` (each interaction paired with a concrete `observe()` locator AND intent) → render
-via the template → smoke: `explore` then `run workflows/`.
+locked) → propose bounded `StoryCandidate[]` → send each candidate into the existing attempt,
+capture, emit, and clean-replay gate → smoke: `explore` then `run workflows/`.
 **Done when:** fake-explorer witness (no LLM) emits a valid `step(...)` spec + `expectVisible`
 (RED→GREEN) · generated spec typechecks + runs through the EXISTING engine · live round-trip on one
 real free-tier app · `--budget` actually caps + stays on-origin.
@@ -278,11 +330,11 @@ empty `git diff`. **Watch out:** node granularity is the whole game (SPA routes 
 
 ### scores — regression now; findability + dark-pattern after the Map · deps: site-map-graph
 **Goal:** computed, honest scores as a run by-product — **regression** (passing steps / total, +
-delta vs last run; computable TODAY from `.schwifly/last-run.json` + `steps.ndjson`), **findability**
+delta vs last run; computable TODAY from `.schwifly/last-run.json` + worker step logs), **findability**
 (steps-taken / shortest-known, needs the Map), **dark-pattern** (a COUNT of named deterministic
 friction signals on the path — extra confirmations, a modal with no
 `role=button[name=/close|cancel/i]`, forced interstitials — via the a11y tree, no LLM). **No 1-10
-vanity scales.** **Start here:** the `StepResult` stream already persists to `.schwifly/steps.ndjson`
+vanity scales.** **Start here:** the `StepResult` stream already persists to per-worker step logs
 → pure `src/scores.ts` (data-in/out, no Playwright/LLM imports) → surface in `cli.ts`. **Build only
 the regression number now**; ship findability provisional (best-run fallback) until the Map lands.
 **Watch out:** every score is a ratio of counted integers or a list of counted signals — if you can't
@@ -313,7 +365,8 @@ or are still worth porting:
   `<validate(?:\s+type="(exact|semantic)")?\s*>(.*?)</validate>`). `exact` feeds `expectText`; the
   `semantic` compare path still needs the LLM (route through the tier-2 seam if/when built).
 - **Secrets redaction:** PORTED into `src/secrets.ts` (`redact` over `password/api_key/token/secret`).
-  Remaining: finish wiring it at the heal/step-log + CLI boundaries (see **secrets-redaction** above).
+  Wired at heal/step persistence and verdict-rendering boundaries; configured secret values are
+  scrubbed even without an adjacent key label.
 - **Heal-write-back policy modes:** the old `always|never|ai_success|changes` enum was deliberately
   NOT resurrected. The opinionated default stands: write back heals that re-verify green. Don't add a
   `--heal-policy` flag.

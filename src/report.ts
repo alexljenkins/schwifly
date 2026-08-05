@@ -1,5 +1,6 @@
 import { createColors } from 'picocolors';
 import type { HealRecord, StepResult } from './workflow';
+import { redact } from './secrets';
 
 // Decide color explicitly so NO_COLOR ALWAYS wins — picocolors' own auto-detect lets
 // FORCE_COLOR (which the Playwright worker sets) override NO_COLOR, which we must not allow.
@@ -126,6 +127,7 @@ function paint(state: VerdictState, s: string): string {
 }
 
 export function renderVerdicts(verdicts: Verdict[]): string {
+  verdicts = redact(verdicts);
   const lines: string[] = [];
   const stateW = Math.max(...Object.values(ICON).map((s) => s.length), 'STATE'.length);
   const fileW = Math.max(...verdicts.map((v) => v.file.length), 'WORKFLOW'.length);

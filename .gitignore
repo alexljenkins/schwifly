@@ -8,6 +8,7 @@ playwright-report/
 # Env / secrets
 .env
 .envrc
+storageState*
 
 # Artifacts
 artifacts/

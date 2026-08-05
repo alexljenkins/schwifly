@@ -24,10 +24,10 @@ test.describe('generated workflow', () => {
     const { page, stagehand } = session;
     const heal = new EscalatingResolver(stagehand);
     await page.goto('https://vercel.com/');
-    await step(page, { intent: 'Open the pricing page', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/header[1]/div[1]/nav[1]/div[1]/a[2]', action: 'click' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
-    await step(page, { intent: 'See the Hobby plan price is 0', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[1]/div[2]/span[1]', action: 'expectVisible' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
-    await step(page, { intent: 'See the Pro plan price is 20 per month', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[2]/div[2]/span[1]', action: 'expectVisible' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
-    await step(page, { intent: 'the page shows 0', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[1]/div[2]/span[1]', action: 'expectText', value: '0' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
-    await step(page, { intent: 'the page shows 20', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[2]/div[2]/span[1]', action: 'expectText', value: '20' }, { resolver: heal, file: here, stepLog: '.schwifly/steps.ndjson' });
+    await step(page, { intent: 'Open the pricing page', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/header[1]/div[1]/nav[1]/div[1]/a[2]', action: 'click' }, { resolver: heal, file: here });
+    await step(page, { intent: 'See the Hobby plan price is 0', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[1]/div[2]/span[1]', action: 'expectVisible' }, { resolver: heal, file: here });
+    await step(page, { intent: 'See the Pro plan price is 20 per month', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[2]/div[2]/span[1]', action: 'expectVisible' }, { resolver: heal, file: here });
+    await step(page, { intent: 'the page shows 0', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[1]/div[2]/span[1]', action: 'expectText', value: '0' }, { resolver: heal, file: here });
+    await step(page, { intent: 'the page shows 20', locator: 'xpath=/html[1]/body[1]/div[2]/div[1]/main[1]/div[1]/section[2]/div[1]/div[2]/div[2]/span[1]', action: 'expectText', value: '20' }, { resolver: heal, file: here });
   });
 });

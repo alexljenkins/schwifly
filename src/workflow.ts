@@ -2,6 +2,8 @@ import { type Page, type Locator, expect } from '@playwright/test';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { q } from './emit';
+import { redact } from './secrets';
+import { HEAL_LOG, STEP_LOG, workerLogPath } from './runLogs';
 
 // A Workflow is a real Playwright .spec.ts. Each step is deterministic-first: it tries a
 // concrete locator, and ONLY if that fails does the AI resolver kick in to find the element
@@ -48,9 +50,6 @@ export interface HealRecord {
   intent: string;
 }
 
-const DEFAULT_HEAL_LOG = '.schwifly/heals.ndjson';
-const DEFAULT_STEP_LOG = '.schwifly/steps.ndjson';
-
 async function act(loc: Locator, spec: StepSpec, timeout: number): Promise<void> {
   switch (spec.action ?? 'click') {
     case 'click':
@@ -78,13 +77,13 @@ async function act(loc: Locator, spec: StepSpec, timeout: number): Promise<void>
 
 function appendNdjson(path: string, rec: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(rec) + '\n');
+  appendFileSync(path, JSON.stringify(redact(rec)) + '\n');
 }
 
 export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): Promise<StepResult> {
   const timeout = opts.timeout ?? 5000;
   const result = await runStep(page, spec, opts, timeout);
-  appendNdjson(opts.stepLog ?? DEFAULT_STEP_LOG, { ...result, file: opts.file });
+  appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), { ...result, file: opts.file });
   return { ...result, file: opts.file };
 }
 
@@ -102,7 +101,7 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
     }
     try {
       await act(page.locator(healed), spec, timeout);
-      appendNdjson(opts.healLog ?? DEFAULT_HEAL_LOG, { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
+      appendNdjson(opts.healLog ?? workerLogPath(HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
       return { intent: spec.intent, status: 'healed', usedLocator: healed, healedFrom: spec.locator };
     } catch (err2) {
       return { intent: spec.intent, status: 'failed', usedLocator: healed, error: String(err2) };
@@ -126,6 +125,7 @@ export function applyHeal(rec: HealRecord, fallbackFiles: string[] = []): boolea
       writeFileSync(f, src.replace(from, to));
       return true;
     }
+    if (src.includes(to)) return true;
   }
   return false;
 }

@@ -86,9 +86,8 @@ the Playwright-native way — no backend, no special access:
 
 Credentials come from the environment (see `.env.example`): copy to `.env` (gitignored) and run with
 `node --env-file=.env`. **A `storageState` JSON is a credential** — it lives under `.schwifly/`
-(gitignored) and is never committed. Secrets are scrubbed through `redact()` on the login path;
-extending that seam across the heal/step logs + CLI output is the open `secrets-redaction` task
-(see [`TODO.md`](./TODO.md)).
+(gitignored) and is never committed; stray `storageState*` files are ignored too. `redact()` scrubs
+secret-keyed fields and configured secret values before heal/step records persist or verdicts print.
 
 > **One shared account by design (YAGNI).** Per-worker multi-account (`testInfo.parallelIndex`) is a
 > deliberate non-goal: the single shared session is also what lets the Stagehand AI backup stay
@@ -106,10 +105,16 @@ else runs locally.
 pnpm install
 npx playwright install chromium
 
-pnpm run verify          # prove the hero loop (real browser, no key needed) → 19 passed, 2 key-gated skips
+pnpm run verify          # prove the hero loop (real browser, no key needed) → 26 passed, 2 key-gated skips
 pnpm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
 pnpm run typecheck
 ```
+
+Parallel workers append only to `.schwifly/heals.<parallelIndex>.ndjson` and
+`.schwifly/steps.<parallelIndex>.ndjson`. After Playwright exits, the CLI gathers the logs,
+then applies every heal record serially as the sole spec writer.
+Run a shard with `pnpm run schwifly run -- workflows/ --shard=1/2`; concurrent shards must use
+separate checkouts/workspaces because each CLI run owns its report and log lifecycle.
 
 For the AI tier, drop a key in `.env` (`GEMINI_API_KEY=…`) and run with `node --env-file=.env`. The
 two live witnesses (`tests/shared-cdp.spec.ts`, `tests/live-tier2.spec.ts`) skip without a key.
@@ -121,8 +126,8 @@ deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM esca
 verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
 shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), and `storageState` auth.
 
-**Next (ground the loop):** make heal write-back process-safe under `fullyParallel`; finish wiring
-`redact()` into the heal/step logs + CLI output; `schwifly record` (codegen → spec); a CI loop that
+**Next (ground the loop):** `schwifly attempt` (arbitrary request → agent discovery → clean-replayed
+deterministic spec); `schwifly record` (human/codegen → the same capture normalizer); a CI loop that
 heals stale locators on push and auto-commits the diff.
 
 **Later (reuse the same engine):** crawl/explore an app to auto-generate stories, the site Map

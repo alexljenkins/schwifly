@@ -67,6 +67,7 @@ test('write-back updates the workflow source (the "update the workflow" step)', 
 
   const rec: HealRecord = { file: f, original: '#signin-OLD', healed: '#signin-v2', intent: 'click Sign in' };
   expect(applyHeal(rec)).toBe(true);
+  expect(applyHeal(rec)).toBe(true); // already applied is idempotent success
 
   const after = readFileSync(f, 'utf8');
   expect(after).toContain('#signin-v2');
