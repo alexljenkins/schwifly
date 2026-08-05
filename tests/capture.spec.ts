@@ -62,6 +62,19 @@ test('typed values pass through redact() before they can reach generated source'
   }
 });
 
+test('a password field is redacted even when its value is not configured in the environment', () => {
+  const saved = process.env.APP_PASSWORD;
+  delete process.env.APP_PASSWORD;
+  try {
+    const steps = normalizeActions([
+      action({ method: 'fill', description: 'Password field', args: ['unconfigured-hunter2'] }),
+    ]);
+    expect(steps[0].value).toBe('***REDACTED***');
+  } finally {
+    if (saved !== undefined) process.env.APP_PASSWORD = saved;
+  }
+});
+
 test('an explicit ticket states its own outcome contract', () => {
   const c = contractFromTicket('Add an element. <expect>Delete</expect>');
   expect(c?.source).toBe('ticket');
@@ -71,6 +84,10 @@ test('an explicit ticket states its own outcome contract', () => {
 
 test('the existing <validate> vocabulary still states a contract', () => {
   expect(contractFromTicket('check the price <validate>19</validate>')?.checks[0].text).toBe('19');
+});
+
+test('mismatched expectation tags do not create a contract', () => {
+  expect(contractFromTicket('check it <expect>Done</validate>')).toBeNull();
 });
 
 test('a vague ticket has no contract of its own and must have one resolved', () => {

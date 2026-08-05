@@ -1,4 +1,5 @@
 import type { Action } from './workflow';
+import { redact } from './secrets';
 
 // Render a healable workflow .spec.ts in the EXACT byte-shape of workflows/example.spec.ts:
 // the same imports, `const here = fileURLToPath(import.meta.url)`, and `file: here` on every
@@ -28,11 +29,18 @@ export interface EmitSpec {
   contract?: { summary: string; checks: string[]; source: string };
 }
 
-// JS single-quoted string literal with the quote/backslash escaped -- locators and intents
-// are plain strings, never chained getByRole(...) objects (that would break write-back + diff).
+// Valid JS single-quoted string literal, including control and Unicode line-separator escaping.
+// Locators and intents stay plain strings; chained locator objects would break write-back + diff.
 // Exported so write-back (applyHeal) anchors on the SAME `locator: '...'` byte-shape emit wrote.
 export function q(s: string): string {
-  return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  const jsonBody = JSON.stringify(s).slice(1, -1).replace(/'/g, "\\'")
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `'${jsonBody}'`;
+}
+
+function comment(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
 }
 
 function stepLine(s: EmitStep): string {
@@ -42,6 +50,34 @@ function stepLine(s: EmitStep): string {
 }
 
 export function emit(spec: EmitSpec): string {
+  const fields = [
+    spec.title,
+    spec.url,
+    ...spec.steps.flatMap((step) => [step.intent, step.locator, step.value ?? '']),
+    ...spec.assertions.flatMap((assertion) => [assertion.intent, assertion.locator, assertion.value]),
+    ...(spec.contract ? [spec.contract.summary, ...spec.contract.checks] : []),
+  ];
+  if (fields.some((field) => redact(field) !== field)) {
+    throw new Error('generated workflow input contains a configured or labeled secret');
+  }
+  if (!spec.steps.length && !spec.assertions.length) {
+    throw new Error('generated workflow needs at least one step or assertion');
+  }
+  for (const step of spec.steps) {
+    if (!step.intent.trim() || !step.locator.trim()) throw new Error('every generated step needs intent and locator');
+    if (step.action === 'fill' && step.value === undefined) {
+      throw new Error(`fill step needs a value: ${step.intent}`);
+    }
+  }
+  for (const assertion of spec.assertions) {
+    if (assertion.type === 'semantic') {
+      throw new Error('semantic assertions are not supported yet; use an exact visible value');
+    }
+    if (!assertion.value.trim() || !assertion.intent.trim() || !assertion.locator.trim()) {
+      throw new Error('every generated assertion needs value, intent, and locator');
+    }
+  }
+
   // Each <validate> becomes an expectText step (epic 5), appended after the navigation steps.
   const assertSteps: EmitStep[] = spec.assertions.map((a) => ({
     intent: a.intent,
@@ -54,8 +90,8 @@ export function emit(spec: EmitSpec): string {
   // The outcome contract, verbatim in the file: a human reading this spec can see what "success"
   // means without rerunning anything, and can check that the assertions below actually encode it.
   const contract = spec.contract
-    ? `\n// Outcome contract (${spec.contract.source}): ${spec.contract.summary}\n` +
-      spec.contract.checks.map((c) => `//   must hold: ${c}`).join('\n') +
+    ? `\n// Outcome contract (${comment(spec.contract.source)}): ${comment(spec.contract.summary)}\n` +
+      spec.contract.checks.map((c) => `//   must hold: ${comment(c)}`).join('\n') +
       '\n'
     : '';
 

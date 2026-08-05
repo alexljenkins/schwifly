@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
 import { emit, type EmitAssertion, type EmitStep } from './emit';
@@ -8,6 +8,7 @@ import { openSharedSession } from './sharedCdp';
 import { redact } from './secrets';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs';
 import type { StepResult } from './workflow';
+import { runPlaywright } from './playwrightProcess';
 import {
   contractFromTicket,
   normalizeActions,
@@ -75,7 +76,9 @@ export const MAX_STEPS = 12;
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
 // Candidates live in their own depth-1 dir: '../src/...' imports resolve, the `candidate`
 // Playwright project can find them, and `schwifly run workflows/` never picks one up.
-const CANDIDATE = 'candidates/candidate.spec.ts';
+function candidatePath(): string {
+  return `candidates/candidate.${process.pid}.${randomUUID()}.spec.ts`;
+}
 
 /**
  * The whole loop: contract -> bounded attempt -> normalize -> emit -> agent-free replay -> save.
@@ -84,6 +87,9 @@ const CANDIDATE = 'candidates/candidate.spec.ts';
 export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> {
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
   const visible = opts.visible ?? false;
+
+  // Discovery can spend money and mutate the remote app. Refuse a destructive local write first.
+  if (existsSync(opts.out)) return { ok: false, reason: redact(`output already exists: ${opts.out}`) };
 
   // 1. Resolve the outcome contract BEFORE trusting anything the attempt produces.
   const resolve = opts.resolveContract ?? proposeContractLive;
@@ -116,22 +122,36 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
 
   // 4. Certification: replay the candidate in a FRESH session with the agent and the heal tier
   //    both disabled, so discovery cannot certify itself by healing an inaccurate capture.
-  write(CANDIDATE, source);
+  const candidate = candidatePath();
+  write(candidate, source, true);
   const replay = opts.replay ?? replayAgentFree;
-  const green = await replay(CANDIDATE);
+  const green = await replay(candidate);
   if (!green) {
     // Candidate stays on disk as redacted debug evidence; no workflow is created or overwritten.
-    return { ok: false, contract, candidate: source, reason: `replay failed; candidate kept at ${CANDIDATE}` };
+    return { ok: false, contract, candidate: source, reason: `replay failed; candidate kept at ${candidate}` };
   }
 
-  write(opts.out, source);
-  rmSync(CANDIDATE, { force: true });
+  // The exclusive write closes the race between the early exists check and a concurrent writer.
+  try {
+    write(opts.out, source, true);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      return {
+        ok: false,
+        contract,
+        candidate: source,
+        reason: redact(`output already exists: ${opts.out}; candidate kept at ${candidate}`),
+      };
+    }
+    throw error;
+  }
+  rmSync(candidate, { force: true });
   return { ok: true, saved: opts.out, contract, candidate: source };
 }
 
-function write(file: string, source: string): void {
+function write(file: string, source: string, exclusive = false): void {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, source);
+  writeFileSync(file, source, exclusive ? { flag: 'wx' } : undefined);
 }
 
 // --- live replay gate ---------------------------------------------------------------------
@@ -143,7 +163,7 @@ function write(file: string, source: string): void {
 // every step failed still exits 0. GREEN means the step log says every step ran ok.
 async function replayAgentFree(file: string): Promise<boolean> {
   clearRunLogs(STEP_LOG);
-  const r = spawnSync('npx', ['playwright', 'test', file, '--reporter=line'], {
+  const r = runPlaywright(['test', file, '--reporter=line'], {
     stdio: 'inherit',
     env: { ...process.env, SCHWIFLY_NO_HEAL: '1' },
   });

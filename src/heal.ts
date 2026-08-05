@@ -101,7 +101,7 @@ export class StagehandResolver implements Resolver {
 
 // Build the Stagehand tier ONLY when a key is configured (llmConfigFromEnv() != null).
 // Without a key this returns undefined, so the AI backup makes no network call and
-// `npm run verify` stays offline. The Stagehand instance comes from the epic-3 shared-CDP
+// `pnpm run verify` stays offline. The Stagehand instance comes from the shared-CDP
 // fixture (openSharedSession) so observe() drives the SAME DOM as step()'s Playwright locators.
 export function makeStagehandResolver(stagehand: Stagehand): StagehandResolver | undefined {
   if (!llmConfigFromEnv()) return undefined;

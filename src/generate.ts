@@ -41,9 +41,10 @@ export async function stableSelector(loc: Locator, fallback: string): Promise<st
     }
   });
 
-  const esc = (s: string) => s.replace(/"/g, '\\"');
-  if (info.role && info.name && info.name.length <= 80) return `role=${info.role}[name="${esc(info.name)}"i]`;
-  if (info.ariaLabel) return `[aria-label="${esc(info.ariaLabel)}"]`;
+  if (info.role && info.name && info.name.length <= 80) {
+    return `role=${info.role}[name=${JSON.stringify(info.name)}i]`;
+  }
+  if (info.ariaLabel) return `[aria-label=${JSON.stringify(info.ariaLabel)}]`;
   if (info.name && info.name.length <= 80) return `text=${info.name}`;
   return fallback; // brittle, but a real selector the heal tier can still improve later
 }
@@ -77,6 +78,14 @@ async function discover(
 // rewrite to a plain-string selector, and render the spec. Returns the spec source text.
 export async function generate(opts: GenerateOptions): Promise<string> {
   const { steps, assertions } = parseStory(opts.story);
+  if (!steps.length && !assertions.length) {
+    throw new Error('story produced no deterministic steps or assertions');
+  }
+  const missingFill = steps.find((step) => step.action === 'fill' && step.value === undefined);
+  if (missingFill) throw new Error(`fill step needs a value: ${missingFill.intent}`);
+  if (assertions.some((assertion) => assertion.type === 'semantic')) {
+    throw new Error('semantic assertions are not supported yet; use an exact visible value');
+  }
   const session = await openSharedSession();
   try {
     const { page, stagehand } = session;

@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parseStory } from '../src/parseStory';
-import { emit } from '../src/emit';
+import { emit, q } from '../src/emit';
+import { stableSelector } from '../src/generate';
 
 // KEY-FREE witnesses for generator-story-to-spec (epic 6).
 // parseStory and emit are PURE (no browser, no LLM) so they verify offline. The live
@@ -39,6 +40,12 @@ test('parseStory turns imperative sentences into intent-bearing steps', () => {
   const { steps } = parseStory('Click the Sign in button. Then fill the email field.');
   expect(steps.length).toBeGreaterThanOrEqual(2);
   expect(steps[0].intent).toContain('Sign in');
+});
+
+test('parseStory accepts multiline bullet steps and ignores empty validations', () => {
+  const parsed = parseStory('- Click the Sign in button\n* See the Account heading\n<validate></validate>');
+  expect(parsed.steps.map((step) => step.action)).toEqual(['click', 'expectVisible']);
+  expect(parsed.assertions).toEqual([]);
 });
 
 test('emit renders a spec whose byte-shape matches the example template and typechecks', () => {
@@ -85,9 +92,63 @@ test('emit output for the full story compiles under tsc (real typecheck, no key)
   const out = join(root, 'workflows', '__emit_typecheck__.spec.ts');
   writeFileSync(out, spec);
   try {
-    const tsc = spawnSync('npx', ['tsc', '--noEmit'], { cwd: root, encoding: 'utf8' });
+    const tsc = spawnSync('pnpm', ['exec', 'tsc', '--noEmit'], { cwd: root, encoding: 'utf8' });
     expect(tsc.status, tsc.stdout + tsc.stderr).toBe(0);
   } finally {
     rmSync(out, { force: true });
   }
+});
+
+test('q emits a valid single-quoted literal for multiline and control characters', () => {
+  const value = "line one\nline two\t'quoted'\\path\u2028next";
+  expect(Function(`return ${q(value)}`)()).toBe(value);
+});
+
+test('emit refuses workflows that cannot be deterministic', () => {
+  expect(() =>
+    emit({ title: 'empty', url: 'https://example.com', steps: [], assertions: [] }),
+  ).toThrow(/at least one step or assertion/);
+  expect(() =>
+    emit({
+      title: 'missing fill value',
+      url: 'https://example.com',
+      steps: [{ intent: 'fill the email field', locator: '#email', action: 'fill' }],
+      assertions: [],
+    }),
+  ).toThrow(/fill step needs a value/);
+  expect(() =>
+    emit({
+      title: 'semantic',
+      url: 'https://example.com',
+      steps: [],
+      assertions: [
+        { type: 'semantic', value: 'about twenty dollars', intent: 'price', locator: '#price' },
+      ],
+    }),
+  ).toThrow(/semantic assertions are not supported/);
+});
+
+test('contract comments stay single-line and cannot inject generated source', () => {
+  const source = emit({
+    title: 'safe comments',
+    url: 'https://example.com',
+    steps: [],
+    assertions: [{ type: 'exact', value: 'Done', intent: 'done', locator: 'text=Done' }],
+    contract: {
+      summary: 'first line\nconst injected = true',
+      checks: ['visible\nimport "oops"'],
+      source: 'ticket',
+    },
+  });
+  expect(source).toContain('// Outcome contract (ticket): first line const injected = true');
+  expect(source).toContain('//   must hold: visible import "oops"');
+  expect(source).not.toMatch(/^const injected/m);
+  expect(source).not.toMatch(/^import "oops"/m);
+});
+
+test('stableSelector returns a selector that survives quotes and backslashes', async ({ page }) => {
+  await page.setContent('<button>Save C:\\draft "now"</button>');
+  const button = page.getByRole('button');
+  const selector = await stableSelector(button, 'button');
+  await expect(page.locator(selector)).toHaveCount(1);
 });

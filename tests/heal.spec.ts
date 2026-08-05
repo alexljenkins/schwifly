@@ -47,6 +47,34 @@ test('broken locator heals via resolver and records the heal (green witness)', a
   expect(recs[0].healed).toBe('#signin-v2');
 });
 
+test('a resolver exception becomes a redacted failed step instead of escaping', async ({ page }) => {
+  const saved = process.env.APP_PASSWORD;
+  process.env.APP_PASSWORD = 'resolver-secret';
+  const dir = mkdtempSync(join(tmpdir(), 'schwifly-'));
+  const stepLog = join(dir, 'steps.ndjson');
+  const broken: Resolver = {
+    async resolve() {
+      throw new Error('provider failed with resolver-secret');
+    },
+  };
+  try {
+    await page.setContent(PAGE);
+    const result = await step(
+      page,
+      { intent: 'click Sign in', locator: '#missing', action: 'click' },
+      { resolver: broken, timeout: 100, stepLog },
+    );
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('resolver failed');
+    const persisted = readFileSync(stepLog, 'utf8');
+    expect(persisted).toContain('REDACTED');
+    expect(persisted).not.toContain('resolver-secret');
+  } finally {
+    if (saved === undefined) delete process.env.APP_PASSWORD;
+    else process.env.APP_PASSWORD = saved;
+  }
+});
+
 test('heuristic resolver heals a stale locator by accessible name (real backup, no LLM)', async ({ page }) => {
   await page.setContent(PAGE);
   const dir = mkdtempSync(join(tmpdir(), 'schwifly-'));

@@ -2,13 +2,13 @@ import { defineConfig } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { authStatePath } from './src/auth';
 
-// THREE projects, deliberately separated so `npm run verify` stays key-free and green:
+// FOUR projects, deliberately separated so `pnpm run verify` stays key-free and green:
 //
 //   setup     — runs the *.auth.setup.ts login(s), writes storageState to .schwifly/auth/.
 //   workflows — the real workflows; depends on `setup` and loads its storageState (logged in).
 //   tests     — the verification witnesses; OWN project, NO storageState, NO setup dependency.
 //
-// `npm run verify` is `playwright test tests/`: the path filter selects only specs under tests/,
+// `pnpm run verify` is `playwright test tests/`: the path filter selects only specs under tests/,
 // so the setup + workflows projects contribute zero tests and `dependencies:['setup']` never
 // fires. Verify therefore needs no creds and no LLM key. `schwifly run` targets workflows/, which
 // DOES pull in `setup` first.

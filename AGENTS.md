@@ -12,7 +12,12 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   the AI SDK result envelope, `mode: 'dom'`).
 - **A green Playwright run does not mean the steps passed.** `step()` records a failed step and
   keeps going by design — the verdict table is the report, not an exception. Anything gating on
-  "did this spec pass" must read the step log (`src/runLogs.ts`), as `replayGreen()` does.
+  "did this spec pass" must read the step log (`src/runLogs.ts`), as `replayGreen()` does. CLI
+  write-back is limited to heals from a fully successful `healed` verdict; runner failures and
+  empty evidence always exit non-zero.
+- Generated files currently import `../src/*`, so CLI output must remain a direct
+  `workflows/<name>.spec.ts` child. Generation and attempts never overwrite an existing workflow;
+  failed attempt evidence uses an isolated gitignored candidate file.
 - `pnpm run verify` must stay key-free: live paths belong behind injectable seams with fake
   fixtures, not behind an API key.
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).

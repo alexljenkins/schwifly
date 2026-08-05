@@ -79,7 +79,12 @@ export function normalizeActions(actions: CapturedAction[]): EmitStep[] {
     if (!a.ok || !a.selector || !a.description) continue;
     const action = METHOD_ACTION[a.method?.toLowerCase()];
     if (!action) continue;
-    const value = action === 'fill' ? redact(String(a.args?.[0] ?? '')) : undefined;
+    const rawValue = String(a.args?.[0] ?? '');
+    // Field labels are evidence too. A value typed into "Password" must be masked even when it
+    // did not come from a configured environment variable and cannot be matched by value alone.
+    const value = action === 'fill'
+      ? redact({ [a.description]: rawValue })[a.description] as string
+      : undefined;
     if (action === 'fill' && !value) continue;
     steps.push({ intent: intentFor(action, a.description), locator: a.selector, action, value });
   }
@@ -111,12 +116,12 @@ function dropSuperseded(steps: EmitStep[]): EmitStep[] {
 // The ticket may state its own outcome inline. `<expect>` is the explicit form; `<validate>` is
 // accepted too so the existing story vocabulary keeps working. Returns null for a vague ticket —
 // the caller (discovery) then has to resolve it to concrete observable text before attempting.
-const EXPECT_RE = /<(?:expect|validate)(?:\s+type="(?:exact|semantic)")?\s*>(.*?)<\/(?:expect|validate)>/g;
+const EXPECT_RE = /<(expect|validate)(?:\s+type="(?:exact|semantic)")?\s*>(.*?)<\/\1>/g;
 
 export function contractFromTicket(ticket: string): OutcomeContract | null {
   const checks: OutcomeCheck[] = [];
   for (const m of ticket.matchAll(EXPECT_RE)) {
-    const text = m[1].trim();
+    const text = m[2].trim();
     if (text) checks.push({ intent: `the page shows ${text}`, text });
   }
   if (!checks.length) return null;
@@ -133,5 +138,5 @@ export function proposedContract(ticket: string, texts: string[]): OutcomeContra
 
 // One line, tags stripped, redacted — this string is written into the generated spec.
 export function summarize(ticket: string): string {
-  return redact(ticket.replace(EXPECT_RE, '$1').replace(/\s+/g, ' ').trim()).slice(0, 160);
+  return redact(ticket.replace(EXPECT_RE, '$2').replace(/\s+/g, ' ').trim()).slice(0, 160);
 }

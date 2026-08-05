@@ -8,10 +8,10 @@ import { openSharedSession, type SharedSession } from '../src/sharedCdp';
 // browsers, the post-click element would be invisible to observe() and this would fail.
 // Passing proves both drive ONE session over shared CDP.
 //
-// Needs one live LLM call (observe). Key-free `npm run verify` skips it so the baseline
+// Needs one live LLM call (observe). Key-free `pnpm run verify` skips it so the baseline
 // count is preserved; run live exactly once to confirm:
 //   GEMINI_API_KEY="$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)" \
-//     npx playwright test tests/shared-cdp.spec.ts
+//     node --env-file=.env node_modules/.bin/playwright test tests/shared-cdp.spec.ts
 test.describe('shared-cdp: one browser for Playwright + Stagehand', () => {
   test.skip(!process.env.GEMINI_API_KEY, 'needs GEMINI_API_KEY for one live observe() call');
 

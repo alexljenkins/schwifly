@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 //   * WITHOUT state (no setup run): the page redirects, the assertion FAILS (RED).
 //   * WITH state (setup ran first): we land on /secure, the assertion PASSES (GREEN).
 //
-// It lives in `workflows/`, NOT `tests/`, so key-free `npm run verify` (which runs tests/ only)
+// It lives in `workflows/`, NOT `tests/`, so key-free `pnpm run verify` (which runs tests/ only)
 // never depends on a login and stays green at baseline.
 test('reaches the secure area using the reused session', async ({ page }) => {
   await page.goto('https://the-internet.herokuapp.com/secure');

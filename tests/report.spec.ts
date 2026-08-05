@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
   buildVerdicts,
+  exitCode,
   renderVerdicts,
+  successfulHeals,
   type PwReport,
   type Verdict,
 } from '../src/report';
@@ -86,6 +88,21 @@ test('healed verdict carries the one-line locator diff', () => {
   expect(healed.heals).toHaveLength(1);
   expect(healed.heals[0].original).toBe('a:has-text("Old")');
   expect(healed.heals[0].healed).toBe('role=button[name="New"i]');
+});
+
+test('only heals from a fully successful workflow are eligible for write-back', () => {
+  const failedHeal: HealRecord = {
+    file: `${here}/fail.spec.ts`,
+    original: '#old',
+    healed: '#new',
+    intent: 'click new',
+  };
+  const verdicts = buildVerdicts(report, [...heals, failedHeal], steps);
+  expect(successfulHeals(verdicts)).toEqual(heals);
+});
+
+test('an empty evidence set cannot produce a successful exit', () => {
+  expect(exitCode([])).toBe(1);
 });
 
 test('absolute heal path matches a relative report path (HEALED does not fall through to PASS)', () => {

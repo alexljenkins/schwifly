@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -134,8 +134,70 @@ test('a RED agent-free replay saves no workflow and keeps the candidate as debug
   expect(res.ok).toBe(false);
   expect(res.reason).toContain('replay failed');
   expect(existsSync(out)).toBe(false);
-  expect(existsSync(join(root, 'candidates', 'candidate.spec.ts'))).toBe(true);
+  const candidate = res.reason?.match(/kept at (.+)$/)?.[1];
+  expect(candidate).toBeTruthy();
+  expect(existsSync(join(root, candidate!))).toBe(true);
+  rmSync(join(root, candidate!), { force: true });
   rmSync(dirname(out), { recursive: true, force: true });
+});
+
+test('an existing output is preserved without running discovery', async () => {
+  const out = tmpOut();
+  writeFileSync(out, 'preserve me');
+  let discovered = false;
+  const res = await attemptFlow({
+    ticket: 'Add an element. <expect>Delete</expect>',
+    url: URL_,
+    title: 'existing',
+    out,
+    discover: async () => {
+      discovered = true;
+      return fakeDiscovery()({} as DiscoveryRequest);
+    },
+    replay: async () => true,
+  });
+
+  expect(res.ok).toBe(false);
+  expect(res.reason).toContain('already exists');
+  expect(discovered).toBe(false);
+  expect(readFileSync(out, 'utf8')).toBe('preserve me');
+  rmSync(dirname(out), { recursive: true, force: true });
+});
+
+test('concurrent attempts use isolated candidate files', async () => {
+  const outs = [tmpOut(), tmpOut()];
+  const replayed: string[] = [];
+  let release!: () => void;
+  const bothStarted = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const replay = async (file: string): Promise<boolean> => {
+    replayed.push(file);
+    if (replayed.length === 2) release();
+    await bothStarted;
+    return false;
+  };
+
+  const results = await Promise.all(
+    outs.map((out) =>
+      attemptFlow({
+        ticket: 'Add an element. <expect>Delete</expect>',
+        url: URL_,
+        title: 'concurrent',
+        out,
+        discover: fakeDiscovery(),
+        replay,
+      }),
+    ),
+  );
+
+  expect(new Set(replayed).size).toBe(2);
+  for (const result of results) {
+    expect(result.ok).toBe(false);
+    const candidate = result.reason?.match(/kept at (.+)$/)?.[1];
+    if (candidate) rmSync(join(root, candidate), { force: true });
+  }
+  for (const out of outs) rmSync(dirname(out), { recursive: true, force: true });
 });
 
 test('a ticket with no resolvable outcome contract never attempts anything', async () => {
@@ -180,8 +242,8 @@ test('a spec produced by the attempt flow compiles under tsc (real typecheck, no
     expect(res.ok).toBe(true);
     // Same compiler options as tsconfig.json, applied to just this file.
     const tsc = spawnSync(
-      'npx',
-      ['tsc', '--noEmit', '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler',
+      'pnpm',
+      ['exec', 'tsc', '--noEmit', '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler',
        '--strict', '--skipLibCheck', '--esModuleInterop', '--types', 'node', out],
       { cwd: root, encoding: 'utf8' },
     );
