@@ -14,6 +14,11 @@ import { clearRunLogs, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
 // schwifly gen "<story>" --url <start> [--out <file>]
 //   turn plain English (+ inline <validate>) into a healable .spec.ts by driving a live browser
 //   ONCE to discover a stable locator per intent (key-gated: needs an LLM key for observe()).
+//
+// schwifly attempt "<ticket>" --url <start> [--out <file>] [--visible]
+//   hand an arbitrary ticket to a bounded, same-origin browser agent, turn its OBSERVED actions
+//   into a deterministic .spec.ts asserting the ticket's outcome contract, replay that spec
+//   agent-free, and save it only on GREEN. Exits 1 (saving nothing) when the contract fails.
 const REPORT = '.schwifly/last-run.json';
 
 // Auto-pull .env (GEMINI_API_KEY etc.) so `npm run schwifly gen ...` works without a manual
@@ -28,8 +33,16 @@ if (cmd === 'gen') {
   process.exit(0);
 }
 
+if (cmd === 'attempt') {
+  await attempt(args.slice(1));
+  process.exit(0);
+}
+
 if (cmd !== 'run') {
-  console.log('usage:\n  schwifly run [path]\n  schwifly gen "<story>" --url <start> [--out <file>]');
+  console.log(
+    'usage:\n  schwifly run [path]\n  schwifly gen "<story>" --url <start> [--out <file>]\n' +
+      '  schwifly attempt "<ticket>" --url <start> [--out <file>] [--visible]',
+  );
   process.exit(cmd ? 1 : 0);
 }
 
@@ -88,4 +101,33 @@ async function gen(argv: string[]): Promise<void> {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, spec);
   console.log(`schwifly gen: wrote ${out}`);
+}
+
+// --- schwifly attempt --------------------------------------------------------------------
+async function attempt(argv: string[]): Promise<void> {
+  const ticket = argv.find((a) => !a.startsWith('--'));
+  const url = flag(argv, 'url');
+  if (!ticket || !url) {
+    console.log('usage: schwifly attempt "<ticket>" --url <start> [--out <file>] [--visible]');
+    process.exit(1);
+  }
+  // The bounded attempt drives a live agent -> needs a key. There is no offline attempt mode.
+  const { llmConfigFromEnv } = await import('./llm');
+  if (!llmConfigFromEnv()) {
+    console.error('schwifly attempt needs an LLM key (e.g. GEMINI_API_KEY) to run the agent attempt.');
+    process.exit(1);
+  }
+  const title = flag(argv, 'title') ?? ticket.slice(0, 60);
+  const out = flag(argv, 'out') ?? `workflows/${slugify(title)}.spec.ts`;
+  const { attemptFlow } = await import('./attempt');
+  const res = await attemptFlow({ ticket, url, title, out, visible: argv.includes('--visible') });
+  if (res.contract) {
+    console.log(`schwifly attempt: outcome contract (${res.contract.source}) — ${res.contract.summary}`);
+    for (const c of res.contract.checks) console.log(`  must hold: ${c.intent}`);
+  }
+  if (!res.ok) {
+    console.error(`schwifly attempt: FAILED — ${res.reason}. No workflow saved.`);
+    process.exit(1);
+  }
+  console.log(`schwifly attempt: GREEN on agent-free replay; wrote ${res.saved}`);
 }

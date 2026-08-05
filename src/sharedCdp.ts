@@ -21,7 +21,18 @@ export interface SharedSession {
 // Default model is Gemini (free-tier friendly); swap via SCHWIFLY_MODEL. LOCAL only — never
 // BROWSERBASE (that is paid cloud and a locked constraint). Stagehand resolves the API key
 // from the environment (GEMINI_API_KEY / GOOGLE_API_KEY / ...), so callers don't wire it.
-export async function openSharedSession(): Promise<SharedSession> {
+export interface SharedSessionOptions {
+  /**
+   * Discovery sessions only. Stagehand's agent evidence callbacks are experimental and refuse to
+   * run unless `experimental` + `disableAPI` are set on the constructor, so the attempt flow opts
+   * in explicitly. Saved-workflow runs keep today's default construction untouched.
+   */
+  evidence?: boolean;
+  /** Force a headed browser regardless of SCHWIFLY_HEADED (the `attempt --visible` demo switch). */
+  headed?: boolean;
+}
+
+export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
   const model = process.env.SCHWIFLY_MODEL ?? 'google/gemini-2.5-flash';
   // Reuse the Chromium Playwright already installed (no extra Chrome download / system Chrome
   // dependency). Without executablePath, Stagehand's chrome-launcher errors "CHROME_PATH must
@@ -31,9 +42,10 @@ export async function openSharedSession(): Promise<SharedSession> {
     env: 'LOCAL',
     model,
     verbose: 0,
+    ...(opts.evidence ? { experimental: true, disableAPI: true } : {}),
     localBrowserLaunchOptions: {
       executablePath: chromium.executablePath(),
-      headless: process.env.SCHWIFLY_HEADED !== '1',
+      headless: !opts.headed && process.env.SCHWIFLY_HEADED !== '1',
       args: ['--no-sandbox'],
     },
   });

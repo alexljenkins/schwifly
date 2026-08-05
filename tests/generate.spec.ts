@@ -56,7 +56,10 @@ test('emit renders a spec whose byte-shape matches the example template and type
   // Wired to the LLM heal tier over the shared-CDP session (not the tier-1-only heuristic).
   expect(spec).toContain("import { EscalatingResolver } from '../src/heal';");
   expect(spec).toContain("import { openSharedSession, type SharedSession } from '../src/sharedCdp';");
-  expect(spec).toContain('const heal = new EscalatingResolver(stagehand);');
+  // The heal tier is wired in, but disableable for one run so the attempt flow's certification
+  // replay cannot let a capture heal its way to GREEN.
+  expect(spec).toContain("new EscalatingResolver(stagehand)");
+  expect(spec).toContain("process.env.SCHWIFLY_NO_HEAL === '1'");
   expect(spec).toContain('session = await openSharedSession();');
   expect(spec).toContain('const here = fileURLToPath(import.meta.url);');
   expect(spec).toContain(`await page.goto('${story.starting_url}');`);

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import type { Stagehand } from '@browserbasehq/stagehand';
 import { parseStory } from './parseStory';
 import { emit, type EmitStep, type EmitAssertion } from './emit';
@@ -22,8 +22,9 @@ export interface GenerateOptions {
 //   3. text="..."              (visible text)
 //   4. the original xpath      (last resort; brittle but real)
 // Plain strings only -- never a chained getByRole(...) object, or write-back + diff break.
-async function stableSelector(page: Page, xpath: string): Promise<string> {
-  const loc = page.locator(xpath).first();
+// Exported: the attempt flow rewrites agent-discovered xpaths and outcome-assertion elements
+// through the SAME strategy, so both discovery paths emit selectors of the same shape.
+export async function stableSelector(loc: Locator, fallback: string): Promise<string> {
   const info = await loc.evaluate((el) => {
     const role = el.getAttribute('role') ?? roleFromTag(el.tagName, el as HTMLInputElement);
     const ariaLabel = el.getAttribute('aria-label');
@@ -44,7 +45,7 @@ async function stableSelector(page: Page, xpath: string): Promise<string> {
   if (info.role && info.name && info.name.length <= 80) return `role=${info.role}[name="${esc(info.name)}"i]`;
   if (info.ariaLabel) return `[aria-label="${esc(info.ariaLabel)}"]`;
   if (info.name && info.name.length <= 80) return `text=${info.name}`;
-  return xpath; // brittle, but a real selector the heal tier can still improve later
+  return fallback; // brittle, but a real selector the heal tier can still improve later
 }
 
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
@@ -61,7 +62,7 @@ async function discover(
   const xpath = actions[0]?.selector;
   if (!xpath) throw new Error(`generate: observe() found no element for intent "${intent}"`);
   if (DEBUG) console.error(`[gen] "${intent}" -> ${xpath} (${actions[0]?.description ?? ''})`);
-  const selector = await stableSelector(page, xpath);
+  const selector = await stableSelector(page.locator(xpath).first(), xpath);
   // Advance the app so the next intent observes the resulting screen (assertions don't navigate).
   if (action === 'click') {
     await page.locator(xpath).first().click().catch(() => {});

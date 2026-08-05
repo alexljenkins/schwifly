@@ -11,5 +11,6 @@ playwright-report/
 storageState*
 
 # Artifacts
+candidates/
 artifacts/
 zz_*
