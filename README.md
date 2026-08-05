@@ -63,14 +63,41 @@ contains fallback) so a story's `<validate>` maps to a real check.
 
 ```bash
 # plain English (+ inline <validate>X</validate>) → a runnable, healable .spec.ts
-# (the `--` separator is required so npm forwards --url to the CLI; a key is needed for discovery)
-GEMINI_API_KEY=… npm run schwifly gen "Open pricing and check the Pro plan costs 19" -- --url https://example.com
+# (the `--` separator is required so pnpm forwards --url to the CLI; a key is needed for discovery)
+GEMINI_API_KEY=… pnpm run schwifly gen "Open pricing and check the Pro plan costs 19" -- --url https://example.com
 ```
 
 `gen` parses the story offline (key-free), then discovers a stable locator per intent by driving a
 live browser once (LLM, key-gated) and emits a `step()`-based spec. The story parser is offline-
 testable; only the locator discovery needs a key (no key → it refuses with a clear message, no
 network call).
+
+### Turn a ticket into a verified workflow
+
+```bash
+# an arbitrary ticket → bounded agent attempt → deterministic .spec.ts → agent-free replay → save
+GEMINI_API_KEY=… pnpm run schwifly attempt "Add an element to the list. <expect>Delete</expect>" -- \
+  --url https://the-internet.herokuapp.com/add_remove_elements/ --out workflows/add-element.spec.ts
+```
+
+`attempt` hands the raw request to a bounded, same-origin browser agent (same-origin is enforced by
+aborting cross-origin navigations at the browser context, not by asking the agent nicely), then
+keeps only its **observed** actions: successful steps carrying a real Playwright selector. Agent
+narration, its final message and its self-reported success are debug context and never become an
+assertion.
+
+Success is decided against an **outcome contract** resolved from the ticket up front — the concrete
+observable end state, stated as `<expect>…</expect>` (or `<validate>…</validate>`). Prefer stating
+it: for a vague ticket, discovery proposes the observable form from the start page, which is a
+guess, whereas an explicit `<expect>` is exactly what you meant. The contract becomes deterministic
+page assertions, is written into the generated spec as a comment so a human can see what success
+means, and is the only judge. The candidate is then replayed in a fresh session with the agent AND
+the heal tier disabled (`SCHWIFLY_NO_HEAL=1`), and the workflow is saved **only** when every step of
+that replay is `ok`. An agent that claims success while the contract does not hold exits non-zero
+and saves nothing.
+
+`--visible` runs the discovery attempt headed so you can watch it, and produces byte-identical
+output. Failed candidates stay at `candidates/candidate.spec.ts` (gitignored) as debug evidence.
 
 ## Login-gated apps (auth)
 
@@ -101,11 +128,15 @@ else runs locally.
 
 ## Quick start
 
+**pnpm is the package manager** (`packageManager` in `package.json`); `pnpm-lock.yaml` is the only
+lockfile. Stagehand and Playwright are pinned exactly — the attempt flow depends on Stagehand's
+agent evidence-callback shapes, which are experimental and version-sensitive.
+
 ```bash
 pnpm install
-npx playwright install chromium
+pnpm exec playwright install chromium
 
-pnpm run verify          # prove the hero loop (real browser, no key needed) → 26 passed, 2 key-gated skips
+pnpm run verify          # prove the hero loop (real browser, no key needed) → 44 passed, 2 key-gated skips
 pnpm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
 pnpm run typecheck
 ```
@@ -124,10 +155,11 @@ two live witnesses (`tests/shared-cdp.spec.ts`, `tests/live-tier2.spec.ts`) skip
 **v1 — built & verified (this branch):** story → workflow → run → self-heal, local CLI. Shipped:
 deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM escalation), 4-state
 verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
-shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), and `storageState` auth.
+shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), `storageState` auth, and
+`schwifly attempt` (arbitrary ticket → bounded agent discovery → contract-asserting spec →
+agent-free replay gate → save on GREEN).
 
-**Next (ground the loop):** `schwifly attempt` (arbitrary request → agent discovery → clean-replayed
-deterministic spec); `schwifly record` (human/codegen → the same capture normalizer); a CI loop that
+**Next (ground the loop):** `schwifly record` (human/codegen → the same capture normalizer); a CI loop that
 heals stale locators on push and auto-commits the diff.
 
 **Later (reuse the same engine):** crawl/explore an app to auto-generate stories, the site Map

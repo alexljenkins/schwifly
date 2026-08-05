@@ -24,6 +24,8 @@ export interface EmitSpec {
   url: string;
   steps: EmitStep[];
   assertions: EmitAssertion[];
+  /** Stated outcome the assertions below encode, rendered as a header comment (attempt flow). */
+  contract?: { summary: string; checks: string[]; source: string };
 }
 
 // JS single-quoted string literal with the quote/backslash escaped -- locators and intents
@@ -49,6 +51,14 @@ export function emit(spec: EmitSpec): string {
   }));
   const body = [...spec.steps, ...assertSteps].map(stepLine).join('\n');
 
+  // The outcome contract, verbatim in the file: a human reading this spec can see what "success"
+  // means without rerunning anything, and can check that the assertions below actually encode it.
+  const contract = spec.contract
+    ? `\n// Outcome contract (${spec.contract.source}): ${spec.contract.summary}\n` +
+      spec.contract.checks.map((c) => `//   must hold: ${c}`).join('\n') +
+      '\n'
+    : '';
+
   // Runs over the shared-CDP session (Stagehand owns Chromium, Playwright attaches over CDP) so a
   // heal's observe() and step()'s locators drive the SAME DOM, and the LLM heal tier
   // (EscalatingResolver) is reachable -- the heuristic alone cannot resolve descriptive intents.
@@ -65,7 +75,7 @@ import { openSharedSession, type SharedSession } from '../src/sharedCdp';
 // deterministic-first, each step tries its locator and the AI backup only heals on failure,
 // then \`schwifly run\` writes the healed locator back into this file.
 const here = fileURLToPath(import.meta.url);
-
+${contract}
 test.describe(${q(spec.title)}, () => {
   test.setTimeout(120_000);
 
@@ -79,7 +89,9 @@ test.describe(${q(spec.title)}, () => {
 
   test(${q(spec.title)}, async () => {
     const { page, stagehand } = session;
-    const heal = new EscalatingResolver(stagehand);
+    // SCHWIFLY_NO_HEAL=1 disables the AI backup for one run. The attempt flow's certification
+    // replay sets it so a capture cannot certify itself by healing an inaccurate locator.
+    const heal = process.env.SCHWIFLY_NO_HEAL === '1' ? undefined : new EscalatingResolver(stagehand);
     await page.goto(${q(spec.url)});
 ${body}
   });

@@ -27,7 +27,7 @@ bring-your-own LLM key). Node 22, ESM, `moduleResolution: Bundler`.
 
 ```bash
 npm install && npx playwright install chromium
-npm run verify       # 26 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
+npm run verify       # 44 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
 npm run schwifly run # run workflows/, print the verdict table, then apply any AI heals
 npm run schwifly gen "<story>" -- --url <start> # story → .spec.ts (note the `--`; locator discovery key-gated)
 npm run typecheck
@@ -198,7 +198,59 @@ machinery not present anywhere else in the codebase yet.
 via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
 
 ### task-to-verified-flow — arbitrary request → agent attempt → minimal deterministic workflow · deps: shared-cdp ✅, live-tier2 ✅
-**Status:** ⏳ not started. This is the primary workflow-discovery path. Company tickets vary in
+**Status:** ✅ done (v1). `schwifly attempt "<ticket>" --url <start> [--out] [--visible]` ships the
+loop: outcome contract → bounded same-origin agent attempt → observed actions → deterministic
+`.spec.ts` → agent-free replay → save on GREEN. What landed:
+- `src/capture.ts` (pure, key-free): `CapturedAction[] → EmitStep[]`. Drops failed probes,
+  selector-less/unsupported methods, and superseded fills; collapses repeated identical actions;
+  intent is DERIVED from the observed element (`click the Add Element`), never from narration, so
+  terse and verbose phrasings of the same ticket emit byte-identical flows. Values go through
+  `redact()`. Also parses the outcome contract out of the ticket (`<expect>` / `<validate>`).
+- `src/attempt.ts`: `attemptFlow()` (contract → discover → normalize → emit → replay → save, with
+  injectable seams so the whole contract is testable key-free) plus `liveDiscover()`, which runs
+  `stagehand.agent({ mode: 'dom' }).execute({ instruction, maxSteps, page, callbacks })` and
+  captures Stagehand's experimental `onEvidence` stream — pairing each successful `step_finished`
+  (the only place a real Playwright selector exists) with the following `step_observed` URL.
+  Selectors are rewritten through the generator's `stableSelector()`.
+- `src/emit.ts`: renders the outcome contract as a header comment (a human reads the file and sees
+  what success means), and makes the heal tier disableable for one run via `SCHWIFLY_NO_HEAL=1`.
+- `playwright.config.ts`: a `candidate` project matching `candidates/**` (gitignored) so the
+  certification replay has somewhere to run that `schwifly run workflows/` never picks up.
+
+**Locked decisions from this build:**
+- **The outcome contract is resolved UP FRONT from the ticket, and the page assertion is the only
+  judge.** No second AI reviewer grades the attempt. `<expect>X</expect>` is the explicit form; a
+  vague ticket gets a proposal from the start page, which is a guess — state the expectation.
+- **The agent's testimony is never evidence.** `message`, `done.reasoning` and self-reported
+  `success` are debug context only. A lying agent (claims success, contract does not hold) exits
+  non-zero and saves nothing (`tests/attempt.spec.ts`).
+- **The replay gate reads the STEP LOG, not the process exit code.** Found live: `step()` records a
+  failure and continues by design, so a spec whose every step failed still exits 0 — gating on the
+  exit code alone certified an empty workflow. `replayGreen()` requires ≥1 step and every step `ok`
+  (a `healed` step also fails the gate, since healing is disabled for certification).
+- **Stagehand specifics (3.7.1, pinned).** Evidence callbacks need `experimental: true` +
+  `disableAPI: true` on the constructor (`openSharedSession({ evidence: true })`). Tool results are
+  wrapped in an AI SDK envelope: the native `playwrightArguments` live at `result.output`, not
+  `result`. `mode: 'dom'` must be passed explicitly — under `experimental` the agent otherwise
+  picks coordinate-based tools, which return click points and nothing replayable.
+- **Same-origin is enforced at the browser context**: cross-origin *navigations* are aborted via a
+  context route; cross-origin subresources (fonts/CDN) are allowed, since blocking those breaks
+  rendering without bounding anything.
+- **Package manager resolved:** `package-lock.json` deleted, `packageManager: pnpm@11.5.3` declared,
+  `@browserbasehq/stagehand` pinned to `3.7.1` and `@playwright/test` to `1.61.1` — the versions the
+  evidence-stream shapes above were observed against.
+
+**Verified:** `pnpm run verify` green key-free (44 passed / 2 key-gated skips) · typecheck clean ·
+generated spec typechecks (`tests/attempt.spec.ts`) · live round trip GREEN against
+`the-internet.herokuapp.com/add_remove_elements/` (captured `role=button[name="Add Element"i]` +
+asserted `Delete`) · `--visible` produces byte-identical output.
+
+**Still open:** the "minimal required path" delta-debugging uplift below (out of scope here), and
+authenticated attempts still need the deferred `storageState` bridge into `openSharedSession()`.
+
+_Original design below._
+
+**Status (original):** ⏳ not started. This is the primary workflow-discovery path. Company tickets vary in
 vocabulary, structure, and detail, so do NOT require Jira/user input to resemble procedural test
 steps. `schwifly attempt "<ticket text>" --url <start>` gives the raw request to a bounded browser
 agent; the agent interprets and attempts the task directly; Schwifly turns the useful observed

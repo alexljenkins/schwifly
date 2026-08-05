@@ -39,6 +39,12 @@ export default defineConfig({
       use: { storageState },
     },
     {
+      // The attempt flow's certification replay: a candidate spec, no setup dependency and no
+      // storageState, run with SCHWIFLY_NO_HEAL=1 so it cannot heal its way to GREEN.
+      name: 'candidate',
+      testMatch: 'candidates/**/*.spec.ts',
+    },
+    {
       // Verification witnesses run key-free with NO storageState and NO setup dependency, so the
       // baseline count is preserved with no creds. Do not add storageState/dependencies here.
       name: 'tests',
