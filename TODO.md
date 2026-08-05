@@ -226,8 +226,10 @@ the existing env contract rather than being embedded.
   probes; keep plain-string selectors; redact values.
 - `src/emit.ts` (~20–40): accept normalized steps plus final evidence assertions; reuse the current
   template and shared-CDP/heal wiring—do not invent another execution path.
-- `src/cli.ts` (~30–50): `schwifly attempt "<request>" --url <start> [--out]`; small fixed defaults
-  for same-origin and max steps, no settings surface.
+- `src/cli.ts` (~30–50): `schwifly attempt "<request>" --url <start> [--out] [--visible]`; small
+  fixed defaults for same-origin and max steps. `--visible` opens the agent-discovery browser headed
+  so a person can watch it click through and find the solution—an explicit demo/debug switch, not a
+  different execution mode. Reuse the existing `SCHWIFLY_HEADED=1` launch seam internally.
 - `tests/attempt.spec.ts` + `tests/capture.spec.ts` (~100–160): fake-agent history only, so baseline
   stays key-free; prove failed exploration is omitted, successful actions normalize, evidence emits,
   secrets redact, and only a GREEN clean replay is eligible to save.
@@ -243,6 +245,14 @@ flow through a fake agent · exploratory failed/superseded actions do not appear
 final outcome has an observable assertion, not agent testimony · generated spec typechecks · clean
 replay passes with agent disabled before file save · impossible/unsupported task exits non-zero and
 leaves no workflow · one live round-trip succeeds against a free public app.
+
+**Demo visibility:** default remains headless for automation. With `--visible`, show the exact same
+bounded discovery attempt in the Stagehand-owned Chromium; stream concise current intent/action
+labels to the terminal so viewers can follow progress. Do not add an artificial demo-only solution,
+DOM overlay, or separate capture path. The clean replay gate still runs and must pass; it may remain
+headless because the useful demo is watching the agent discover the flow. **Done when:** the live
+round-trip can be watched end-to-end and produces byte-identical captured output with/without the
+flag.
 
 **Watch out:** Stagehand action-history fidelity/API stability is the first spike—verify it exposes
 selectors and outcomes before building the adapter. If it does not, instrument the shared page
