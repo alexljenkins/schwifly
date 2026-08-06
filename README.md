@@ -188,7 +188,8 @@ deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM esca
 verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
 shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), `storageState` auth, and
 `schwifly attempt` (arbitrary ticket → bounded agent discovery → contract-asserting spec →
-agent-free replay gate → save on GREEN).
+agent-free replay gate → save on GREEN), and `schwifly record` (do the flow once in Playwright
+codegen → the same healable spec).
 
 **Next (ground the loop):** a CI loop that heals stale locators on push and auto-commits the diff.
 
