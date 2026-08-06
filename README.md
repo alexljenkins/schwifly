@@ -114,7 +114,9 @@ pnpm run schwifly record https://example.com -- --out workflows/example-recordin
 turns the recorded `click`, `fill`, and visible/text assertions into the same `step()`-based,
 healable `.spec.ts` template used by generation and attempts. Locators remain plain selector
 strings, so a later heal is still a one-line write-back diff. Unsupported codegen actions fail
-clearly instead of being dropped from the saved workflow.
+clearly instead of being dropped from the saved workflow. v1 records a single page: popup and
+multi-context recordings (`page1`, `context.waitForEvent`) are rejected with a clear error rather
+than silently losing their actions.
 
 Role/name, label, text, placeholder, title, and alt text produce intent labels offline. Opaque CSS
 and test-id selectors keep a generic deterministic intent; when an LLM key is already configured,

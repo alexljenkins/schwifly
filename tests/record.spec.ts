@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,6 +100,16 @@ test('unsupported codegen actions fail instead of disappearing from the workflow
     .toThrow(/literal accessible name/);
 });
 
+test('popup and multi-context recordings fail instead of losing their actions', () => {
+  expect(() => parseCodegen(`
+    await page.getByRole('link', { name: 'Buy' }).click();
+    const page1 = await page1Promise;
+    await page1.getByRole('button', { name: 'Confirm' }).click();
+  `)).toThrow(/single page only/);
+  expect(() => parseCodegen("const popup = await context.waitForEvent('page');"))
+    .toThrow(/single page only/);
+});
+
 test('recorded steps run green unmodified', async ({ page }) => {
   await page.setContent(`
     <label>Email address <input /></label>
@@ -122,6 +132,7 @@ test('the emitted recorded file runs unmodified with every step green', async ({
     <button onclick="document.querySelector('#done').hidden = false">Add Element</button>
     <span id="done" hidden>Delete</span>
   `);
+  mkdirSync(dirname(candidate), { recursive: true });
   writeFileSync(candidate, emit({
     title: 'record runtime witness',
     url,

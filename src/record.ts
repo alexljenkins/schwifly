@@ -59,7 +59,7 @@ function parseStatement(statement: string): EmitStep | null {
   if (/^page\.(goto|pause)\s*\(/.test(expression)) return null;
 
   if (expression.startsWith('expect(')) return parseAssertion(expression);
-  if (!expression.startsWith('page.')) return null;
+  if (!expression.startsWith('page.')) throw new Error(unsupportedHandleMessage(expression));
 
   const locator = parseLocator(expression);
   const actionCall = parseCallSuffix(locator.rest);
@@ -93,7 +93,25 @@ function parseStatement(statement: string): EmitStep | null {
   if (!normalized && method === 'fill' && value === '') {
     return { intent: `fill the ${description}`, locator: locator.selector, action: 'fill', value };
   }
-  return normalized ?? null;
+  if (!normalized) throw new Error(`unsupported codegen statement: ${summarize(expression)}`);
+  return normalized;
+}
+
+// A recording only replays faithfully if every recorded action targets the single `page` handle
+// this v1 emits against. Popup/multi-context flows (`const page1 = await page1Promise;`, then
+// `page1.…`) must fail loudly rather than silently vanish from the saved workflow.
+function unsupportedHandleMessage(expression: string): string {
+  const handle = /^([A-Za-z_$][\w$]*)\s*(?:\.|$)/.exec(expression)?.[1];
+  if (handle && /^(page\d+|popup|context|browser|frame\w*)/.test(handle)) {
+    return `unsupported codegen handle "${handle}": schwifly record supports a single page only, `
+      + 'so popup and multi-context recordings cannot be replayed faithfully';
+  }
+  return `unsupported codegen statement: ${summarize(expression)}`;
+}
+
+function summarize(expression: string): string {
+  const flat = expression.replace(/\s+/g, ' ').trim();
+  return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
 }
 
 function parseAssertion(expression: string): EmitStep {
