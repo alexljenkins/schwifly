@@ -104,6 +104,24 @@ output. Failed candidates stay at a unique `candidates/candidate.<pid>.<id>.spec
 (gitignored) as debug evidence, so concurrent attempts cannot overwrite each other. Successful
 generation and attempts refuse to overwrite an existing workflow.
 
+### Record a workflow by doing it once
+
+```bash
+pnpm run schwifly record https://example.com -- --out workflows/example-recording.spec.ts
+```
+
+`record` opens Playwright codegen's browser. Perform the flow, then close the browser; Schwifly
+turns the recorded `click`, `fill`, and visible/text assertions into the same `step()`-based,
+healable `.spec.ts` template used by generation and attempts. Locators remain plain selector
+strings, so a later heal is still a one-line write-back diff. Unsupported codegen actions fail
+clearly instead of being dropped from the saved workflow.
+
+Role/name, label, text, placeholder, title, and alt text produce intent labels offline. Opaque CSS
+and test-id selectors keep a generic deterministic intent; when an LLM key is already configured,
+one optional author-time labeling call improves only those generic intents. No key is required to
+record. Playwright codegen already supplies the interactive start/stop UI, so v1 deliberately adds
+no browser extension, hotkey service, or recorder settings.
+
 ## Login-gated apps (auth)
 
 Most real apps hide everything behind a login. schwifly captures a session **once** and reuses it,
@@ -147,6 +165,7 @@ pnpm exec playwright install chromium
 
 pnpm run verify          # prove the hero loop (real browser, no key needed; live tests skip)
 pnpm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
+pnpm run schwifly record https://example.com # do a flow once, save a healable workflow
 pnpm run typecheck
 ```
 
@@ -169,8 +188,7 @@ shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), `storageSta
 `schwifly attempt` (arbitrary ticket → bounded agent discovery → contract-asserting spec →
 agent-free replay gate → save on GREEN).
 
-**Next (ground the loop):** `schwifly record` (human/codegen → the same capture normalizer); a CI loop that
-heals stale locators on push and auto-commits the diff.
+**Next (ground the loop):** a CI loop that heals stale locators on push and auto-commits the diff.
 
 **Later (reuse the same engine):** crawl/explore an app to auto-generate stories, the site Map
 (anywhere→anywhere), regression / findability / dark-pattern Scores, support-flow sharing, and live

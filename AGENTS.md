@@ -16,8 +16,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   write-back is limited to heals from a fully successful `healed` verdict; runner failures and
   empty evidence always exit non-zero.
 - Generated files currently import `../src/*`, so CLI output must remain a direct
-  `workflows/<name>.spec.ts` child. Generation and attempts never overwrite an existing workflow;
-  failed attempt evidence uses an isolated gitignored candidate file.
+  `workflows/<name>.spec.ts` child. Generation, attempts, and recordings never overwrite an
+  existing workflow; failed attempt evidence uses an isolated gitignored candidate file.
 - `pnpm run verify` must stay key-free: live paths belong behind injectable seams with fake
   fixtures, not behind an API key.
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).
