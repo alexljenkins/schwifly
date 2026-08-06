@@ -12,6 +12,9 @@ export const AUTH_DIR = '.schwifly/auth';
 export const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 export function authStatePath(app: string): string {
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(app) || app === '.' || app === '..') {
+    throw new Error(`invalid auth app name: ${app}`);
+  }
   return join(AUTH_DIR, `${app}.json`);
 }
 

@@ -82,9 +82,9 @@ function appendNdjson(path: string, rec: unknown): void {
 
 export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): Promise<StepResult> {
   const timeout = opts.timeout ?? 5000;
-  const result = await runStep(page, spec, opts, timeout);
-  appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), { ...result, file: opts.file });
-  return { ...result, file: opts.file };
+  const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file });
+  appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), result);
+  return result;
 }
 
 async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: number): Promise<StepResult> {
@@ -93,9 +93,19 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
     return { intent: spec.intent, status: 'ok', usedLocator: spec.locator };
   } catch (err) {
     if (!opts.resolver) {
-      return { intent: spec.intent, status: 'failed', usedLocator: spec.locator, error: String(err) };
+      return { intent: spec.intent, status: 'failed', usedLocator: spec.locator, error: redact(String(err)) };
     }
-    const healed = await opts.resolver.resolve(page, spec);
+    let healed: string | null;
+    try {
+      healed = await opts.resolver.resolve(page, spec);
+    } catch (resolverError) {
+      return {
+        intent: spec.intent,
+        status: 'failed',
+        usedLocator: spec.locator,
+        error: redact(`resolver failed: ${String(resolverError)}`),
+      };
+    }
     if (!healed) {
       return { intent: spec.intent, status: 'failed', usedLocator: spec.locator, error: 'resolver returned null' };
     }
@@ -104,7 +114,7 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
       appendNdjson(opts.healLog ?? workerLogPath(HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
       return { intent: spec.intent, status: 'healed', usedLocator: healed, healedFrom: spec.locator };
     } catch (err2) {
-      return { intent: spec.intent, status: 'failed', usedLocator: healed, error: String(err2) };
+      return { intent: spec.intent, status: 'failed', usedLocator: healed, error: redact(String(err2)) };
     }
   }
 }

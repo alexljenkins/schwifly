@@ -17,9 +17,9 @@ import { join } from 'node:path';
 // Uses the epic-3 shared-CDP fixture (openSharedSession) so observe() and step()'s Playwright
 // locators drive ONE browser. Exactly ONE live observe() call; no loops, no agent.execute.
 //
-// Key-free `npm run verify` SKIPS this (resolver stays undefined, no network). Run live once:
+// Key-free `pnpm run verify` SKIPS this (resolver stays undefined, no network). Run live once:
 //   GEMINI_API_KEY="$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)" \
-//     npx playwright test tests/live-tier2.spec.ts
+//     node --env-file=.env node_modules/.bin/playwright test tests/live-tier2.spec.ts
 //
 // Swap proof (DO NOT run -- cost): SCHWIFLY_MODEL=openai/gpt-4.1-mini would route the SAME
 // code path through OpenAI with zero code change (llm.ts reads the env var; Stagehand resolves

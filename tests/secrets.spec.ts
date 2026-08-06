@@ -41,7 +41,9 @@ test('redact scrubs configured secret values even without a key label', () => {
     expect(masked).toBe(`fill value was ${REDACTED}`);
 
     process.env.APP_PASSWORD = 'short';
-    expect(redact('short stands alone; password=short')).toBe(`short stands alone; password: ${REDACTED}`);
+    expect(redact('short stands alone; password=short')).toBe(
+      `${REDACTED} stands alone; password: ${REDACTED}`,
+    );
   } finally {
     if (saved === undefined) delete process.env.APP_PASSWORD;
     else process.env.APP_PASSWORD = saved;
@@ -79,19 +81,10 @@ test('credentials reads the env contract with safe defaults', () => {
   try {
     delete process.env.APP_EMAIL;
     delete process.env.APP_PASSWORD;
-    delete process.env.BASE_URL_DEFAULT;
-    delete process.env.HEADLESS;
-    process.env.ALLOWED_DOMAINS = 'the-internet.herokuapp.com, example.com';
 
     const c = credentials();
     expect(c.email).toBe('');
     expect(c.password).toBe('');
-    expect(c.baseUrl).toBe('');
-    expect(c.headless).toBe(true); // default headless
-    expect(c.allowedDomains).toEqual(['the-internet.herokuapp.com', 'example.com']);
-
-    process.env.HEADLESS = 'false';
-    expect(credentials().headless).toBe(false);
   } finally {
     Object.assign(process.env, saved);
   }

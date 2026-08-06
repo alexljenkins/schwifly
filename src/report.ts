@@ -156,7 +156,13 @@ export function renderVerdicts(verdicts: Verdict[]): string {
   return lines.join('\n');
 }
 
-// Healed counts as success; only fail/impossible are non-zero exit.
+// Healed counts as success. Empty evidence, fail, and impossible are non-zero.
 export function exitCode(verdicts: Verdict[]): number {
-  return verdicts.some((v) => v.state === 'fail' || v.state === 'impossible') ? 1 : 0;
+  return verdicts.length > 0 && verdicts.every((v) => v.state === 'pass' || v.state === 'healed') ? 0 : 1;
+}
+
+// Only a fully successful workflow may mutate its source. This also excludes orphaned heal-log
+// records whose file never appeared in the Playwright report.
+export function successfulHeals(verdicts: Verdict[]): HealRecord[] {
+  return verdicts.filter((verdict) => verdict.state === 'healed').flatMap((verdict) => verdict.heals);
 }

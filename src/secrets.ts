@@ -3,32 +3,23 @@
 // here we only read process.env, so the caller chooses how the env is populated.
 //
 // TWO jobs:
-//   credentials() — the login + run contract (email/password/base URL/headless/allowed domains).
+//   credentials() — the login contract (email/password).
 //   redact()      — scrub secrets at every persist/print boundary (a storageState JSON is itself a
 //                   credential; a typed password flows into a HealRecord and the terminal).
 
 export interface Credentials {
   email: string;
   password: string;
-  baseUrl: string;
-  headless: boolean;
-  allowedDomains: string[]; // empty = no restriction
 }
 
 // Read the login + run contract from the environment. Missing email/password is allowed here
 // (returns ''); the auth setup is the place that fails loudly when it actually needs them, so
-// key-free `npm run verify` (which never runs setup) imports this module without exploding.
+// key-free `pnpm run verify` (which never runs setup) imports this module without exploding.
 export function credentials(): Credentials {
   const env = process.env;
   return {
     email: env.APP_EMAIL ?? '',
     password: env.APP_PASSWORD ?? '',
-    baseUrl: env.BASE_URL_DEFAULT ?? '',
-    headless: (env.HEADLESS ?? 'true').toLowerCase() !== 'false',
-    allowedDomains: (env.ALLOWED_DOMAINS ?? '')
-      .split(',')
-      .map((d) => d.trim())
-      .filter(Boolean),
   };
 }
 
@@ -62,7 +53,9 @@ export function redact<T>(value: T): T {
 function redactString(text: string): string {
   let out = text;
   const secretValues = Object.entries(process.env)
-    .filter(([key, value]) => value && value.length >= 6 && isSecretKey(key))
+    // Very short values are too ambiguous to replace globally (TOKEN=1 would corrupt every path
+    // containing "1"). Structured fields and inline key=value pairs are still always masked.
+    .filter(([key, value]) => value && value.length >= 4 && isSecretKey(key))
     .map(([, value]) => value as string)
     .sort((a, b) => b.length - a.length);
   for (const value of secretValues) out = out.split(value).join(REDACTED);

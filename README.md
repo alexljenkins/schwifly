@@ -42,12 +42,13 @@ on one string.
    Bring your own key. **Proven live** on `gemini-2.5-flash` (healed a no-accessible-name toggle the
    heuristic couldn't); it's wrapped in an `EscalatingResolver` so the LLM only fires when the
    heuristic returns `null` **and** a key exists — cost stays off the happy path. Key-gated, so
-   `npm run verify` skips it and stays free.
+   `pnpm run verify` skips it and stays free.
 
 ### Verdicts & exit codes
 
 `schwifly run` joins Playwright's JSON report with the heal/step logs and prints a per-workflow
-verdict table over four states, then sets the exit code so CI can trust it:
+verdict table over four states, then sets the exit code so CI can trust it. An empty run or any
+Playwright process failure exits non-zero; stale report data can never turn it green.
 
 | Verdict | Meaning | Exit |
 |---|---|---|
@@ -70,7 +71,9 @@ GEMINI_API_KEY=… pnpm run schwifly gen "Open pricing and check the Pro plan co
 `gen` parses the story offline (key-free), then discovers a stable locator per intent by driving a
 live browser once (LLM, key-gated) and emits a `step()`-based spec. The story parser is offline-
 testable; only the locator discovery needs a key (no key → it refuses with a clear message, no
-network call).
+network call). Output is a direct `workflows/<name>.spec.ts` child and is never overwritten.
+Unsupported semantic assertions and fill steps without a deterministic value fail clearly instead
+of producing a workflow that can pass for the wrong reason.
 
 ### Turn a ticket into a verified workflow
 
@@ -97,7 +100,9 @@ that replay is `ok`. An agent that claims success while the contract does not ho
 and saves nothing.
 
 `--visible` runs the discovery attempt headed so you can watch it, and produces byte-identical
-output. Failed candidates stay at `candidates/candidate.spec.ts` (gitignored) as debug evidence.
+output. Failed candidates stay at a unique `candidates/candidate.<pid>.<id>.spec.ts` path
+(gitignored) as debug evidence, so concurrent attempts cannot overwrite each other. Successful
+generation and attempts refuse to overwrite an existing workflow.
 
 ## Login-gated apps (auth)
 
@@ -106,10 +111,14 @@ the Playwright-native way — no backend, no special access:
 
 - A `setup` project runs `workflows/<app>.auth.setup.ts`, which logs in **via `step()`** (so the
   login self-heals like any other step) and writes `storageState` to `.schwifly/auth/<app>.json`.
-- The `workflows` project `dependencies: ['setup']` and loads that state, so every workflow starts
-  logged in. The session is reused across runs and re-captured when stale (>24h, by mtime).
+- The `workflows` project `dependencies: ['setup']` and loads that state for Playwright-fixture
+  workflows. The session is reused across runs and re-captured when stale (>24h, by mtime).
 - The `tests/` project is its OWN project with **no** storageState and **no** setup dependency, so
-  `npm run verify` stays key-free and green with no creds.
+  `pnpm run verify` stays key-free and green with no creds.
+
+Generated and attempted workflows currently open their own Stagehand-owned browser context, so
+they do not yet inherit the Playwright project's `storageState`. Authenticated generation remains a
+deliberate follow-up rather than a silently supported path.
 
 Credentials come from the environment (see `.env.example`): copy to `.env` (gitignored) and run with
 `node --env-file=.env`. **A `storageState` JSON is a credential** — it lives under `.schwifly/`
@@ -136,14 +145,15 @@ agent evidence-callback shapes, which are experimental and version-sensitive.
 pnpm install
 pnpm exec playwright install chromium
 
-pnpm run verify          # prove the hero loop (real browser, no key needed) → 44 passed, 2 key-gated skips
+pnpm run verify          # prove the hero loop (real browser, no key needed; live tests skip)
 pnpm run schwifly run    # run the workflows in workflows/, print verdicts, apply any AI heals
 pnpm run typecheck
 ```
 
 Parallel workers append only to `.schwifly/heals.<parallelIndex>.ndjson` and
 `.schwifly/steps.<parallelIndex>.ndjson`. After Playwright exits, the CLI gathers the logs,
-then applies every heal record serially as the sole spec writer.
+then applies heal records serially only for workflows whose complete verdict is **healed**.
+Heals from failed, impossible, orphaned, or globally interrupted runs are withheld.
 Run a shard with `pnpm run schwifly run -- workflows/ --shard=1/2`; concurrent shards must use
 separate checkouts/workspaces because each CLI run owns its report and log lifecycle.
 
@@ -152,7 +162,7 @@ two live witnesses (`tests/shared-cdp.spec.ts`, `tests/live-tier2.spec.ts`) skip
 
 ## Roadmap
 
-**v1 — built & verified (this branch):** story → workflow → run → self-heal, local CLI. Shipped:
+**v1 — built & verified:** story → workflow → run → self-heal, local CLI. Shipped:
 deterministic-first engine + two-tier heal (heuristic + **live-proven** LLM escalation), 4-state
 verdict table with trustworthy exit codes, `schwifly gen` (story → spec), `expectText` assertions,
 shared-CDP substrate (Stagehand owns Chromium, Playwright attaches), `storageState` auth, and

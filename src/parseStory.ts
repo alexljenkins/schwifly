@@ -46,7 +46,8 @@ function stripValidate(s: string): string {
 export function parseStory(story: string): ParsedStory {
   const assertions: ParsedAssertion[] = [];
   for (const m of story.matchAll(VALIDATE_RE)) {
-    assertions.push({ type: (m[1] as AssertionType) ?? 'exact', value: m[2].trim() });
+    const value = m[2].trim();
+    if (value) assertions.push({ type: (m[1] as AssertionType) ?? 'exact', value });
   }
 
   // Split the narrative into candidate sentences (period / newline / bullet boundaries), then
@@ -54,8 +55,11 @@ export function parseStory(story: string): ParsedStory {
   const verbAlt = ACTION_VERBS.map((v) => v.replace(/\s+/g, '\\s+')).join('|');
   const leadVerb = new RegExp(`^(${verbAlt})\\b`, 'i');
   const steps: ParsedStep[] = [];
-  for (const raw of story.split(/(?:[.\n]|^\s*[-*]\s*)+/)) {
-    const sentence = stripValidate(raw).replace(/^(then|and|next|now)\s+/i, '').trim();
+  for (const raw of story.split(/[.\n]+/)) {
+    const sentence = stripValidate(raw)
+      .replace(/^\s*[-*]\s*/, '')
+      .replace(/^(then|and|next|now)\s+/i, '')
+      .trim();
     const lead = leadVerb.exec(sentence);
     if (!lead) continue;
     steps.push({ intent: sentence, action: actionFor(lead[1]) });

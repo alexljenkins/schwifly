@@ -1,5 +1,6 @@
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
+import { DEFAULT_MODEL } from './llm';
 
 // Shared-CDP substrate: Stagehand OWNS Chromium, Playwright ATTACHES over CDP, so
 // Stagehand observe()/act() and step()'s Playwright locators drive the SAME DOM.
@@ -33,7 +34,7 @@ export interface SharedSessionOptions {
 }
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
-  const model = process.env.SCHWIFLY_MODEL ?? 'google/gemini-2.5-flash';
+  const model = process.env.SCHWIFLY_MODEL ?? DEFAULT_MODEL;
   // Reuse the Chromium Playwright already installed (no extra Chrome download / system Chrome
   // dependency). Without executablePath, Stagehand's chrome-launcher errors "CHROME_PATH must
   // be set". --no-sandbox is required to launch Chromium inside sandboxed CI/Linux (otherwise
@@ -51,8 +52,17 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
   });
   await stagehand.init();
 
-  const browser = await chromium.connectOverCDP(stagehand.connectURL());
-  const page = browser.contexts()[0].pages()[0];
+  let browser: Browser;
+  let page: Page;
+  try {
+    browser = await chromium.connectOverCDP(stagehand.connectURL());
+    const firstPage = browser.contexts()[0]?.pages()[0];
+    if (!firstPage) throw new Error('Stagehand opened no browser page');
+    page = firstPage;
+  } catch (error) {
+    await stagehand.close().catch(() => {});
+    throw error;
+  }
 
   return {
     stagehand,

@@ -21,16 +21,17 @@ a git diff on one locator string.
 
 ## Current state — your starting point
 
-The **v1 hero loop is built and verified** (branch `complete-rebuild`, commit `f16b80d`). Stack:
+The **v1 hero loop is built and verified** on `main`. Stack:
 **TypeScript · Playwright** (Apache-2.0, runner+browser) **· Stagehand v3** (MIT, local,
 bring-your-own LLM key). Node 22, ESM, `moduleResolution: Bundler`.
 
 ```bash
-npm install && npx playwright install chromium
-npm run verify       # 44 passed / 2 key-gated skips / 0 failed — real chromium, NO key needed
-npm run schwifly run # run workflows/, print the verdict table, then apply any AI heals
-npm run schwifly gen "<story>" -- --url <start> # story → .spec.ts (note the `--`; locator discovery key-gated)
-npm run typecheck
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run verify       # real Chromium, no key needed; live tests skip without one
+pnpm run schwifly run # run workflows/, print verdicts, apply only successful heals
+pnpm run schwifly gen "<story>" -- --url <start> # story → .spec.ts; discovery is key-gated
+pnpm run typecheck
 ```
 
 The engine (read these first):
@@ -53,7 +54,8 @@ The engine (read these first):
   assertions}` (key-free), render the spec byte-shape, discover locators live (key-gated).
 - `src/secrets.ts` — `credentials()` (env contract) + `redact()` (scrub secret-keyed values).
 - `src/auth.ts` — `storageState` path under `.schwifly/auth/<app>.json` + 24h staleness check.
-- `src/cli.ts` — `schwifly run [path]` and `schwifly gen "<story>" --url <start> [--out]`.
+- `src/cli.ts` — `run`, `gen`, and `attempt`; trustworthy process exits, safe direct-child output,
+  and no overwrite.
 
 Workflows & witnesses:
 - `workflows/example.spec.ts` — a workflow IS a Playwright spec using `step()`.
@@ -65,9 +67,10 @@ Workflows & witnesses:
 - `fixtures/relevance-pricing.json` — the Relevance-AI pricing worked example (preserved when the
   Python prototype was deleted). `.env.example` documents the env contract.
 
-`playwright.config.ts` defines three projects: `setup` (writes storageState), `workflows`
+`playwright.config.ts` defines four projects: `setup` (writes storageState), `workflows`
 (`dependencies:['setup']`, `use.storageState`), and `tests` (its OWN project, NO storageState — so
-`npm run verify` stays key-free). The legacy Python prototype has been deleted.
+`pnpm run verify` stays key-free), plus `candidate` for agent-free attempt certification. The
+legacy Python prototype has been deleted.
 
 ---
 
@@ -80,8 +83,7 @@ Workflows & witnesses:
 - **Workflow = a real `.spec.ts`**; a heal = a diff on one locator string (keep locators as plain
   string selectors, never chained `getByRole(...)` objects, or write-back + diff break).
 - **Real verification over theater.** Write the failing case, watch it go RED, then GREEN. Never
-  claim a green that never ran. Keep `npm run verify` green with NO key.
-- **Don't commit/push unless Alex asks.** Branch from `complete-rebuild`.
+  claim a green that never ran. Keep `pnpm run verify` green with NO key.
 
 Full prior + rationale: `~/repos/alex_intelligence/forge/sources/2026-06-22-rebuild-ai-web-test-platform.md`
 · taste model: `~/repos/alex_intelligence/forge/wiki/concepts/taste-model.md`.
@@ -90,17 +92,16 @@ Full prior + rationale: `~/repos/alex_intelligence/forge/sources/2026-06-22-rebu
 
 ## ✅ Shipped
 
-Core v1 landed from branch `complete-rebuild` (`f16b80d`). Each item landed RED→GREEN with
-witnesses; the current suite is green key-free (26 passed / 2 key-gated skips / 0 failed) and
-typechecks clean. One live `gemini-2.5-flash` proof was run for the two AI substrates; everything
-else is key-free.
+Core v1 is on `main` with key-free witnesses and two key-gated live tests. One live
+`gemini-2.5-flash` proof was run for the two AI substrates; everything else is key-free.
 
 - **remove-python-legacy** — deleted the dead `browser-use` prototype (~9.5k lines); preserved
   `tests.json` → `fixtures/relevance-pricing.json`; `.gitignore` trimmed to Node/TS (with `.env`
   still ignored).
 - **cli-and-verdicts** — `src/report.ts` 4-state verdict table joining `.schwifly/last-run.json` +
-  heal/step logs; exit 1 only on fail/impossible; `NO_COLOR`-aware; `step()` gained a `stepLog`
-  sink so **impossible** (`resolver returned null`) survives to the CLI. One dep: `picocolors`.
+  heal/step logs; empty runs, runner failures, fail, and impossible exit 1; `NO_COLOR`-aware;
+  `step()` persists failures so **impossible** (`resolver returned null`) survives to the CLI.
+  Write-back is limited to successful healed workflows. One dep: `picocolors`.
 - **assertion-actions** — `expectText` action (exact `toHaveText`, then `toContainText` fallback),
   so `<validate>19</validate>` matches both `19` and `$19/month`. No DSL (YAGNI).
 - **shared-cdp-fixture** — `src/sharedCdp.ts` `openSharedSession()` (Stagehand owns Chromium
@@ -118,12 +119,16 @@ else is key-free.
 - **auth-login-at-scale** — `src/secrets.ts` (`credentials()` + `redact()`), `src/auth.ts`
   (storageState path + 24h staleness), `the-internet.auth.setup.ts` logs in **via `step()`**
   (self-healing login) against the free `the-internet.herokuapp.com`. 3-project config keeps
-  `npm run verify` key-free. RED without state → GREEN after setup; reuse + regeneration proven;
+  `pnpm run verify` key-free. RED without state → GREEN after setup; reuse + regeneration proven;
   password → `***REDACTED***`; no `.env`/auth JSON tracked. One shared account by design (YAGNI).
 - **parallel-and-independent-runs** — workers append redacted records to isolated
-  `.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs. The CLI gathers them, deduplicates heals
-  on `(file,original,healed)`, then applies them serially as the sole workflow-source writer.
-  `applyHeal()` is idempotent; duplicate and cross-worker witnesses are green.
+  `.schwifly/{heals,steps}.<parallelIndex>.ndjson` logs. The CLI gathers them and applies eligible
+  heals serially as the sole workflow-source writer. Duplicate records remain intentional because
+  two steps may share a locator; `applyHeal()` is idempotent.
+- **foundation-hardening** — process-level CLI failures cannot reuse stale evidence or exit 0;
+  attempts use isolated candidate files; outputs never overwrite; generated source escapes input
+  and rejects unsupported contracts; resolver failures and secret fields are redacted; dead env
+  options and the unselected `workflows/vercel-prices.ts` artifact were removed.
 - **secrets-redaction** — the NDJSON persistence seam and verdict-rendering boundary both call
   `redact()`. Configured password/token/API-key values are scrubbed even without a key label;
   witnesses cover heal logs, step logs, and terminal locator diffs.
@@ -138,8 +143,8 @@ These three LLM paths compile and are gated correctly, but only the two one-shot
 above have hit a real model. Before depending on them in a demo, run ONE key-gated pass:
 
 ```bash
-GEMINI_API_KEY="$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)" \
-  npx playwright test tests/live-tier2.spec.ts tests/shared-cdp.spec.ts
+node --env-file=.env node_modules/.bin/playwright test \
+  tests/live-tier2.spec.ts tests/shared-cdp.spec.ts
 ```
 
 1. **Generator live discovery** — `schwifly gen "<story>" --url <real-url>` then `schwifly run` the
@@ -159,9 +164,8 @@ GEMINI_API_KEY="$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)" \
 in `afterAll`, and each generated test builds `new EscalatingResolver(session.stagehand)` and drives
 `session.page` — so every generated `schwifly run` reaches the LLM heal tier when a key is set.
 Tradeoff accepted per decision: every run launches a second Stagehand-owned Chromium via CDP, heal
-needed or not (no lazy-launch machinery built). Byte-shape test (`tests/generate.spec.ts`) updated to
-the new imports/wiring; checked-in `workflows/generated-workflow.spec.ts` regenerated to match.
-Key-free `npm run verify` remains green (26 passed / 2 skips / 0 failed); typecheck clean.
+needed or not (no lazy-launch machinery built). Byte-shape tests in `tests/generate.spec.ts` cover
+the imports/wiring. Key-free `pnpm run verify` remains the baseline gate.
 **Known limitation (codex review, deferred):** the shared session runs in a Stagehand-owned browser
 context, so the `workflows` project's `use.storageState` is NOT loaded — a *generated* workflow
 behind auth would run logged-out. No such consumer exists yet, and injecting storageState into
@@ -195,7 +199,7 @@ even on a clean deterministic pass with no heal needed — a real deviation from
 in on failure" cost model. Alternative is a lazy-launch-on-first-failure resolver, which needs new
 machinery not present anywhere else in the codebase yet.
 **Done when:** a generated spec with a descriptive (non-exact-label) intent, run with a key, heals
-via the LLM tier instead of going `IMPOSSIBLE` · key-free `npm run verify` stays unaffected.
+via the LLM tier instead of going `IMPOSSIBLE` · key-free `pnpm run verify` stays unaffected.
 
 ### task-to-verified-flow — arbitrary request → agent attempt → minimal deterministic workflow · deps: shared-cdp ✅, live-tier2 ✅
 **Status:** ✅ done (v1). `schwifly attempt "<ticket>" --url <start> [--out] [--visible]` ships the
@@ -240,7 +244,7 @@ loop: outcome contract → bounded same-origin agent attempt → observed action
   `@browserbasehq/stagehand` pinned to `3.7.1` and `@playwright/test` to `1.61.1` — the versions the
   evidence-stream shapes above were observed against.
 
-**Verified:** `pnpm run verify` green key-free (44 passed / 2 key-gated skips) · typecheck clean ·
+**Verified:** `pnpm run verify` green key-free · typecheck clean ·
 generated spec typechecks (`tests/attempt.spec.ts`) · live round trip GREEN against
 `the-internet.herokuapp.com/add_remove_elements/` (captured `role=button[name="Add Element"i]` +
 asserted `Delete`) · `--visible` produces byte-identical output.
@@ -326,7 +330,7 @@ survive; identical input produces stable minimized output.
 **Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
 using `step()`. Intent labels heuristic (role+name) or AI-labeled when no human label.
 **Start here:** `src/workflow.ts` (collapse codegen's verbs onto `click|fill|expectVisible`, do NOT
-expand the union) · `workflows/example.spec.ts` (emit template) · `npx playwright codegen
+expand the union) · `workflows/example.spec.ts` (emit template) · `pnpm exec playwright codegen
 --target playwright-test -o <file> <url>` — parse its output, NOT the private `recorderMode:'api'`.
 **First steps:** pure `src/record.ts` (codegen text → `StepSpec[]`: `getByRole('button',{name:'X'})`
 → `role=button[name="X"i]`, etc. — **plain string selectors**) → heuristic intent labeler (role+name,
