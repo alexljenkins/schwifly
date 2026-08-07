@@ -327,19 +327,25 @@ required]` shrinks to two steps while outcome remains GREEN; state-setting/navig
 survive; identical input produces stable minimized output.
 
 ### recorder-flow-to-spec — record a real flow → workflow · deps: capture normalizer from task-to-verified-flow
-**Status:** ⏳ not started. `schwifly record <url>` → user does the flow once → saved as a `.spec.ts`
-using `step()`. Intent labels heuristic (role+name) or AI-labeled when no human label.
-**Start here:** `src/workflow.ts` (collapse codegen's verbs onto `click|fill|expectVisible`, do NOT
-expand the union) · `workflows/example.spec.ts` (emit template) · `pnpm exec playwright codegen
---target playwright-test -o <file> <url>` — parse its output, NOT the private `recorderMode:'api'`.
-**First steps:** pure `src/record.ts` (codegen text → `StepSpec[]`: `getByRole('button',{name:'X'})`
-→ `role=button[name="X"i]`, etc. — **plain string selectors**) → heuristic intent labeler (role+name,
-phrased so the healer's verb maps can re-derive it) → optional key-gated AI labeler → emitter +
-`schwifly record` → `tests/record.spec.ts` (string-in → StepSpec-out, no browser).
-**Done when:** transform test maps a known codegen string to expected `StepSpec[]` (RED→GREEN) ·
-recorded file runs unmodified green · break a recorded locator → heuristic heals + write-back.
-**Watch out:** codegen is interactive (not headless/CI) — test the pure transform. Don't expand the
-Action union. Intent phrasing is load-bearing for no-LLM heal.
+**Status:** ✅ done (v1). `schwifly record <url> [--out workflows/<name>.spec.ts]` opens the pinned
+Playwright codegen browser; closing it transforms the public codegen source into the existing
+`emit()` template and saves without overwrite. What landed:
+- `src/record.ts` is the pure, key-free transform. It reuses `normalizeActions()`, converts role,
+  text, label, placeholder, alt, title, test-id, and raw locators to plain selector strings, and
+  refuses operations the existing Action union cannot replay faithfully.
+- Human-facing locator labels produce healer-compatible intents first. Opaque selectors retain a
+  generic intent; `src/recordLabel.ts` makes one optional key-gated author-time labeling call for
+  only those steps. Recording itself stays key-free.
+- The CLI writes codegen's potentially sensitive intermediate source only under gitignored
+  `.schwifly/`, removes it after conversion, and reuses the direct-child/no-overwrite output guard.
+
+**Recording UX decision:** CLI-only. Playwright codegen already owns the headed browser and stop
+interaction, while an extension/hotkey service would violate the locked local-CLI/YAGNI posture
+without solving a demonstrated gap.
+
+**Verified:** known codegen text maps to expected `StepSpec[]` (RED→GREEN) · parsed steps run
+unmodified green in Chromium · breaking a recorded role locator heals heuristically and the emitted
+source receives the locator write-back · key-free `pnpm run verify` and typecheck stay green.
 
 ### ci-reexplore-on-change — keep workflows current in CI · deps: cli-and-verdicts ✅ (unblocked)
 **Status:** ⏳ not started; exit/verdict semantics it needs are now owned by `cli-and-verdicts`.

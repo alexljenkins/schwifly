@@ -86,3 +86,23 @@ test('gen refuses to overwrite an existing workflow before discovery can run', (
   expect(result.stdout + result.stderr).toContain('already exists');
   rmSync(cwd, { recursive: true, force: true });
 });
+
+test('record validates its URL and output before opening interactive codegen', () => {
+  const missing = runCli(['record']);
+  expect(missing.status).toBe(1);
+  expect(output(missing)).toContain('usage: schwifly record');
+
+  const badUrl = runCli(['record', 'file:///tmp/page.html']);
+  expect(badUrl.status).toBe(1);
+  expect(output(badUrl)).toContain('URL must use http or https');
+
+  const escape = runCli([
+    'record',
+    'https://example.com',
+    '--out',
+    '../escape.spec.ts',
+  ]);
+  expect(escape.status).toBe(1);
+  expect(output(escape)).toContain('workflows/<name>.spec.ts');
+  expect(output(escape)).not.toContain('complete the flow');
+});

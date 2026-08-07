@@ -54,7 +54,7 @@ export const ACTION_VERBS = ['click', 'press', 'tap', 'open', 'select', 'choose'
 export function salientLabel(intent: string): string {
   return intent
     .replace(/\b(click|press|tap|open|select|choose|go to|navigate to|fill|enter|type|check|toggle|see|view|the|a|an)\b/gi, ' ')
-    .replace(/\b(button|link|field|input|box|icon|menu|tab|checkbox|option|heading)\b/gi, ' ')
+    .replace(/\b(button|link|field|input|textbox|combobox|radio|switch|box|icon|menu|tab|checkbox|option|heading)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -66,6 +66,12 @@ export const ROLE_NOUNS: Record<string, string> = {
   link: 'link',
   tab: 'tab',
   checkbox: 'checkbox',
+  field: 'textbox',
+  input: 'textbox',
+  textbox: 'textbox',
+  combobox: 'combobox',
+  radio: 'radio',
+  switch: 'switch',
   option: 'option',
   heading: 'heading',
   menu: 'menuitem',

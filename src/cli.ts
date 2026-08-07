@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyHeal, type HealRecord, type StepResult } from './workflow';
 import {
   buildVerdicts,
@@ -19,11 +19,14 @@ import { redact } from './secrets';
 //   discover locators once and emit a deterministic workflow.
 // schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]
 //   run bounded discovery, certify the captured flow agent-free, then save it without overwrite.
+// schwifly record <url> [--out workflows/<name>.spec.ts]
+//   open Playwright codegen, record one human-driven flow, then emit the same healable template.
 const REPORT = '.schwifly/last-run.json';
 const USAGE =
   'usage:\n  schwifly run [path]\n' +
   '  schwifly gen "<story>" --url <start> [--out workflows/<name>.spec.ts]\n' +
-  '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]';
+  '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]\n' +
+  '  schwifly record <url> [--out workflows/<name>.spec.ts]';
 
 interface CommandInput {
   positionals: string[];
@@ -221,6 +224,63 @@ async function attempt(argv: string[]): Promise<number> {
   return 0;
 }
 
+async function record(argv: string[]): Promise<number> {
+  const input = parseCommand(argv, ['out']);
+  const rawUrl = input.positionals[0];
+  if (input.positionals.length !== 1 || !rawUrl) {
+    console.log('usage: schwifly record <url> [--out workflows/<name>.spec.ts]');
+    return 1;
+  }
+  const url = webUrl(rawUrl);
+  const host = new URL(url).hostname;
+  const title = `recorded ${host} flow`;
+  const out = workflowOutput(stringFlag(input, 'out') ?? `workflows/${slugify(title)}.spec.ts`);
+
+  mkdirSync('.schwifly', { recursive: true });
+  const tempDir = mkdtempSync(join('.schwifly', 'record-'));
+  const capture = join(tempDir, 'codegen.spec.ts');
+  try {
+    console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
+    const runner = runPlaywright(
+      ['codegen', '--target', 'playwright-test', '-o', capture, url],
+      { stdio: 'inherit' },
+    );
+    if (runner.error) throw runner.error;
+    if (runner.status !== 0) {
+      console.error(`schwifly record: Playwright codegen exited ${runner.status ?? runner.signal}.`);
+      return 1;
+    }
+    if (!existsSync(capture) || !readFileSync(capture, 'utf8').trim()) {
+      console.error('schwifly record: no browser actions were recorded.');
+      return 1;
+    }
+
+    const { needsIntentLabel, parseCodegen } = await import('./record');
+    let steps = parseCodegen(readFileSync(capture, 'utf8'));
+    const opaque = steps.filter(needsIntentLabel).length;
+    if (opaque) {
+      const { llmConfigFromEnv } = await import('./llm');
+      if (llmConfigFromEnv()) {
+        try {
+          const { labelRecordedIntents } = await import('./recordLabel');
+          steps = await labelRecordedIntents(steps);
+        } catch (error) {
+          console.warn(`schwifly record: optional intent labeling failed: ${redact(String(error))}`);
+        }
+      }
+    }
+
+    const { emit } = await import('./emit');
+    const source = emit({ title, url, steps, assertions: [] });
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, source, { flag: 'wx' });
+    console.log(`schwifly record: wrote ${out}`);
+    return 0;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<number> {
   // Auto-load the ignored local env once. Callers never need to put keys on the command line.
   if (existsSync('.env')) process.loadEnvFile('.env');
@@ -229,6 +289,7 @@ async function main(): Promise<number> {
   const cmd = args[0];
   if (cmd === 'gen') return gen(args.slice(1));
   if (cmd === 'attempt') return attempt(args.slice(1));
+  if (cmd === 'record') return record(args.slice(1));
   if (cmd === 'run') return runWorkflows(args.slice(1));
   console.log(USAGE);
   return cmd ? 1 : 0;
