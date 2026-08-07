@@ -11,6 +11,8 @@ export interface EmitStep {
   locator: string;          // plain-string selector (CSS / text= / role= / [aria-label] / xpath=)
   action: Action;
   value?: string;           // for 'fill' and 'expectText'
+  page?: string;            // recorded popup/new-tab handle; omitted for the original page
+  opensPage?: { handle: string; event: 'popup' | 'page' };
 }
 
 export interface EmitAssertion {
@@ -43,10 +45,17 @@ function comment(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-function stepLine(s: EmitStep): string {
+function stepLines(s: EmitStep): string {
   const fields = [`intent: ${q(s.intent)}`, `locator: ${q(s.locator)}`, `action: ${q(s.action)}`];
   if (s.value !== undefined) fields.push(`value: ${q(s.value)}`);
-  return `    await step(page, { ${fields.join(', ')} }, { resolver: heal, file: here });`;
+  const page = s.page ?? 'page';
+  const line = `    await step(${page}, { ${fields.join(', ')} }, { resolver: heal, file: here });`;
+  if (!s.opensPage) return line;
+  const wait = s.opensPage.event === 'popup'
+    ? `${page}.waitForEvent('popup')`
+    : `${page}.context().waitForEvent('page')`;
+  return `    const ${s.opensPage.handle}Promise = ${wait};\n${line}\n`
+    + `    const ${s.opensPage.handle} = await ${s.opensPage.handle}Promise;`;
 }
 
 export function emit(spec: EmitSpec): string {
@@ -63,10 +72,28 @@ export function emit(spec: EmitSpec): string {
   if (!spec.steps.length && !spec.assertions.length) {
     throw new Error('generated workflow needs at least one step or assertion');
   }
+  const pageHandles = new Set(['page']);
+  const emittedNames = new Set(['page']);
   for (const step of spec.steps) {
     if (!step.intent.trim() || !step.locator.trim()) throw new Error('every generated step needs intent and locator');
     if (step.action === 'fill' && step.value === undefined) {
       throw new Error(`fill step needs a value: ${step.intent}`);
+    }
+    for (const handle of [step.page, step.opensPage?.handle]) {
+      if (handle && !/^[A-Za-z_$][\w$]*$/.test(handle)) {
+        throw new Error(`invalid recorded page handle: ${handle}`);
+      }
+    }
+    const page = step.page ?? 'page';
+    if (!pageHandles.has(page)) throw new Error(`recorded page handle is not open yet: ${page}`);
+    if (step.opensPage) {
+      const { handle } = step.opensPage;
+      if (pageHandles.has(handle) || emittedNames.has(handle) || emittedNames.has(`${handle}Promise`)) {
+        throw new Error(`duplicate recorded page handle: ${handle}`);
+      }
+      pageHandles.add(handle);
+      emittedNames.add(handle);
+      emittedNames.add(`${handle}Promise`);
     }
   }
   for (const assertion of spec.assertions) {
@@ -85,7 +112,7 @@ export function emit(spec: EmitSpec): string {
     action: 'expectText',
     value: a.value,
   }));
-  const body = [...spec.steps, ...assertSteps].map(stepLine).join('\n');
+  const body = [...spec.steps, ...assertSteps].map(stepLines).join('\n');
 
   // The outcome contract, verbatim in the file: a human reading this spec can see what "success"
   // means without rerunning anything, and can check that the assertions below actually encode it.
