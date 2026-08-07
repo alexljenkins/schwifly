@@ -20,6 +20,23 @@ interface StringToken {
   end: number;
 }
 
+interface AwaitStatement {
+  source: string;
+  start: number;
+  end: number;
+}
+
+type CodegenEvent =
+  | { kind: 'register'; start: number; end: number; promise: string; source: string; event: 'popup' | 'page' }
+  | { kind: 'resolve'; start: number; end: number; handle: string; promise: string }
+  | { kind: 'action'; start: number; end: number; statement: string };
+
+interface PendingPage {
+  source: string;
+  event: 'popup' | 'page';
+  stepIndex: number;
+}
+
 export function needsIntentLabel(step: StepSpec): boolean {
   return step.intent.endsWith(`the ${FALLBACK_LABEL}`);
 }
@@ -46,22 +63,64 @@ export function applyIntentLabels(steps: EmitStep[], labels: string[]): EmitStep
 /** Playwright codegen source text -> plain-string, deterministic workflow steps. */
 export function parseCodegen(source: string): EmitStep[] {
   const steps: EmitStep[] = [];
-  for (const statement of awaitStatements(source)) {
-    const step = parseStatement(statement);
-    if (step) steps.push(step);
+  const pages = new Set(['page']);
+  const pending = new Map<string, PendingPage>();
+  for (const event of codegenEvents(source)) {
+    if (event.kind === 'register') {
+      if (pending.size) throw new Error('ambiguous popup sequence: overlapping page waits are not supported');
+      if (pending.has(event.promise)) throw new Error(`duplicate page promise: ${event.promise}`);
+      if (event.event === 'popup' && !pages.has(event.source)) {
+        throw new Error(unsupportedHandleMessage(event.source));
+      }
+      if (event.event === 'page' && event.source !== 'context') {
+        throw new Error(`unsupported page wait: ${event.source}.waitForEvent('page'); use Playwright codegen's context.waitForEvent('page') sequence`);
+      }
+      pending.set(event.promise, { source: event.source, event: event.event, stepIndex: steps.length });
+      continue;
+    }
+    if (event.kind === 'resolve') {
+      const wait = pending.get(event.promise);
+      if (!wait) {
+        throw new Error(`unsupported page handle "${event.handle}": promise "${event.promise}" was not declared by a supported popup or new-tab sequence`);
+      }
+      if (pages.has(event.handle) || event.handle === 'context') {
+        throw new Error(`ambiguous popup sequence: page handle "${event.handle}" is already in use`);
+      }
+      if (steps.length !== wait.stepIndex + 1) {
+        throw new Error('ambiguous popup sequence: a page wait must wrap exactly one recorded action');
+      }
+      const opener = steps[wait.stepIndex];
+      const openerPage = opener.page ?? 'page';
+      if (wait.event === 'popup' && openerPage !== wait.source) {
+        throw new Error(`ambiguous popup sequence: ${wait.source}.waitForEvent('popup') must wrap an action on ${wait.source}`);
+      }
+      steps[wait.stepIndex] = {
+        ...opener,
+        opensPage: { handle: event.handle, event: wait.event },
+      };
+      pages.add(event.handle);
+      pending.delete(event.promise);
+      continue;
+    }
+
+    const handle = expressionHandle(event.statement);
+    if (handle && !pages.has(handle)) throw new Error(unsupportedHandleMessage(handle));
+    const step = parseStatement(event.statement, handle ?? 'page');
+    if (step) steps.push(handle && handle !== 'page' ? { ...step, page: handle } : step);
   }
+  if (pending.size) throw new Error('incomplete popup sequence: recorded page wait was never resolved');
   if (!steps.length) throw new Error('recording contains no supported actions');
   return steps;
 }
 
-function parseStatement(statement: string): EmitStep | null {
+function parseStatement(statement: string, handle: string): EmitStep | null {
   const expression = statement.replace(/^await\s+/, '').replace(/;\s*$/, '').trim();
-  if (/^page\.(goto|pause)\s*\(/.test(expression)) return null;
+  if (new RegExp(`^${escapeRegExp(handle)}\\.(goto|pause)\\s*\\(`).test(expression)) return null;
 
-  if (expression.startsWith('expect(')) return parseAssertion(expression);
-  if (!expression.startsWith('page.')) throw new Error(unsupportedHandleMessage(expression));
+  if (expression.startsWith('expect(')) return parseAssertion(expression, handle);
+  if (!expression.startsWith(`${handle}.`)) throw new Error(unsupportedHandleMessage(expression));
 
-  const locator = parseLocator(expression);
+  const locator = parseLocator(expression, handle);
   const actionCall = parseCallSuffix(locator.rest);
   if (!actionCall) throw new Error('unsupported codegen statement');
 
@@ -97,16 +156,17 @@ function parseStatement(statement: string): EmitStep | null {
   return normalized;
 }
 
-// A recording only replays faithfully if every recorded action targets the single `page` handle
-// this v1 emits against. Popup/multi-context flows (`const page1 = await page1Promise;`, then
-// `page1.…`) must fail loudly rather than silently vanish from the saved workflow.
 function unsupportedHandleMessage(expression: string): string {
   const handle = /^([A-Za-z_$][\w$]*)\s*(?:\.|$)/.exec(expression)?.[1];
-  if (handle && /^(page\d+|popup|context|browser|frame\w*)/.test(handle)) {
-    return `unsupported codegen handle "${handle}": schwifly record supports a single page only, `
-      + 'so popup and multi-context recordings cannot be replayed faithfully';
+  if (handle) {
+    return `unsupported codegen handle "${handle}": it was not declared by a supported popup or new-tab sequence`;
   }
   return `unsupported codegen statement: ${summarize(expression)}`;
+}
+
+function expressionHandle(statement: string): string | undefined {
+  const expression = statement.replace(/^await\s+/, '').trim();
+  return /^(?:expect\(\s*)?([A-Za-z_$][\w$]*)\./.exec(expression)?.[1];
 }
 
 function summarize(expression: string): string {
@@ -114,12 +174,12 @@ function summarize(expression: string): string {
   return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
 }
 
-function parseAssertion(expression: string): EmitStep {
+function parseAssertion(expression: string, handle: string): EmitStep {
   const call = consumeCall(expression, 'expect');
   if (!call || call.rest === expression) {
     throw new Error('unsupported codegen assertion');
   }
-  const locator = parseLocator(call.args.trim());
+  const locator = parseLocator(call.args.trim(), handle);
   if (locator.rest.trim()) {
     throw new Error('unsupported chained codegen locator');
   }
@@ -144,11 +204,12 @@ function parseAssertion(expression: string): EmitStep {
   throw new Error(`unsupported codegen assertion: ${assertion.name}`);
 }
 
-function parseLocator(expression: string): ParsedLocator {
-  const match = /^page\.(locator|getByRole|getByText|getByLabel|getByPlaceholder|getByAltText|getByTitle|getByTestId)\s*\(/.exec(expression);
+function parseLocator(expression: string, handle: string): ParsedLocator {
+  const prefix = escapeRegExp(handle);
+  const match = new RegExp(`^${prefix}\\.(locator|getByRole|getByText|getByLabel|getByPlaceholder|getByAltText|getByTitle|getByTestId)\\s*\\(`).exec(expression);
   if (!match) throw new Error('unsupported codegen locator');
   const method = match[1];
-  const call = consumeCall(expression, `page.${method}`);
+  const call = consumeCall(expression, `${handle}.${method}`);
   if (!call) throw new Error('malformed codegen locator');
   const args = splitTopLevel(call.args);
   let selector: string;
@@ -344,8 +405,39 @@ function splitTopLevel(source: string): string[] {
   return parts;
 }
 
-function awaitStatements(source: string): string[] {
-  const statements: string[] = [];
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function codegenEvents(source: string): CodegenEvent[] {
+  const events: CodegenEvent[] = [];
+  const structuralRanges: Array<{ start: number; end: number }> = [];
+  const registration = /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\.waitForEvent\(\s*(['"])(popup|page)\3\s*\)\s*;/g;
+  for (const match of source.matchAll(registration)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    events.push({
+      kind: 'register', start, end, promise: match[1], source: match[2],
+      event: match[4] as 'popup' | 'page',
+    });
+    structuralRanges.push({ start, end });
+  }
+  const resolution = /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+([A-Za-z_$][\w$]*)\s*;/g;
+  for (const match of source.matchAll(resolution)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    events.push({ kind: 'resolve', start, end, handle: match[1], promise: match[2] });
+    structuralRanges.push({ start, end });
+  }
+  for (const statement of awaitStatements(source)) {
+    if (structuralRanges.some((range) => statement.start >= range.start && statement.start < range.end)) continue;
+    events.push({ kind: 'action', ...statement, statement: statement.source });
+  }
+  return events.sort((a, b) => a.start - b.start);
+}
+
+function awaitStatements(source: string): AwaitStatement[] {
+  const statements: AwaitStatement[] = [];
   let cursor = 0;
   while (cursor < source.length) {
     const start = source.indexOf('await ', cursor);
@@ -365,7 +457,7 @@ function awaitStatements(source: string): string[] {
         break;
       }
     }
-    statements.push(source.slice(start, end).trim());
+    statements.push({ source: source.slice(start, end).trim(), start, end });
     cursor = end;
   }
   return statements;

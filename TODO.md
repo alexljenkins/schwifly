@@ -336,6 +336,9 @@ Playwright codegen browser; closing it transforms the public codegen source into
 - Human-facing locator labels produce healer-compatible intents first. Opaque selectors retain a
   generic intent; `src/recordLabel.ts` makes one optional key-gated author-time labeling call for
   only those steps. Recording itself stays key-free.
+- Playwright codegen popup and new-tab waits become page-transition metadata on the opener step;
+  `emit()` awaits the new handle and routes later steps, including switches back, through the same
+  `step()` and plain-string healing/write-back contract. Ambiguous waits and undeclared handles fail.
 - The CLI writes codegen's potentially sensitive intermediate source only under gitignored
   `.schwifly/`, removes it after conversion, and reuses the direct-child/no-overwrite output guard.
 
@@ -344,8 +347,9 @@ interaction, while an extension/hotkey service would violate the locked local-CL
 without solving a demonstrated gap.
 
 **Verified:** known codegen text maps to expected `StepSpec[]` (RED→GREEN) · parsed steps run
-unmodified green in Chromium · breaking a recorded role locator heals heuristically and the emitted
-source receives the locator write-back · key-free `pnpm run verify` and typecheck stay green.
+unmodified green in Chromium · emitted popup steps run on both page handles and switch back ·
+breaking a recorded role locator heals heuristically and the emitted source receives the locator
+write-back · key-free `pnpm run verify` and typecheck stay green.
 
 ### ci-reexplore-on-change — keep workflows current in CI · deps: cli-and-verdicts ✅ (unblocked)
 **Status:** ⏳ not started; exit/verdict semantics it needs are now owned by `cli-and-verdicts`.
