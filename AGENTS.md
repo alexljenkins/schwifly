@@ -20,6 +20,9 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   existing workflow; failed attempt evidence uses an isolated gitignored candidate file.
 - `pnpm run verify` must stay key-free: live paths belong behind injectable seams with fake
   fixtures, not behind an API key.
+- Story routes load their authoritative `.story.yaml` file and the repository-root
+  `schwifly.config.ts` on every run. Certification requires green step logs and exactly one green
+  record per proof clause; proof records live in isolated `.schwifly/proofs*.ndjson` files.
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).
 
 ## Maintaining this file

@@ -8,6 +8,13 @@ import { openSharedSession } from './sharedCdp';
 import { redact } from './secrets';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs';
 import type { StepResult } from './workflow';
+import type { LoadedStory } from './story';
+import {
+  proofDescriptions,
+  runProofs,
+  type ProofRecord,
+  type ValidatedProof,
+} from './proofs';
 import { runPlaywright } from './playwrightProcess';
 import {
   contractFromTicket,
@@ -69,6 +76,19 @@ export interface AttemptResult {
   /** Candidate spec source, kept as debug evidence when the run fails. */
   candidate?: string;
   contract?: OutcomeContract;
+}
+
+export interface StoryDiscoveryRequest {
+  loaded: LoadedStory;
+  proofs: ValidatedProof[];
+  maxSteps: number;
+  visible: boolean;
+}
+
+export interface StoryDiscovery {
+  actions: CapturedAction[];
+  proofs: ProofRecord[];
+  notes: string;
 }
 
 // Small fixed defaults. A bounded attempt is a locked constraint, not a knob.
@@ -220,11 +240,49 @@ async function proposeContractLive(ticket: string, url: string, visible: boolean
  * page and bind each satisfied check to a stable locator.
  */
 export async function liveDiscover(req: DiscoveryRequest): Promise<Discovery> {
-  const session = await openSharedSession({ evidence: true, headed: req.visible });
+  const captured = await captureLive(req.url, req.maxSteps, req.visible, async (page, execute) => {
+    const notes = await execute(
+      `${req.ticket}\n\nStay on ${new URL(req.url).origin}. Do not open other sites. ` +
+      `Stop as soon as this is true: ${req.contract.checks.map((c) => c.intent).join('; ')}.`,
+    );
+    const { assertions, unmet } = await bindContract(page, req.contract);
+    return { assertions, unmet, notes };
+  });
+  return { actions: captured.actions, ...captured.value };
+}
+
+export async function liveDiscoverStory(req: StoryDiscoveryRequest): Promise<StoryDiscovery> {
+  const story = req.loaded.story;
+  const captured = await captureLive(story.start.url, req.maxSteps, req.visible, async (page, execute) => {
+    let notes = '';
+    const proofRun = await runProofs({
+      proofs: req.proofs,
+      context: { page, browserContext: page.context() },
+      route: async () => {
+        notes = await execute(
+          `Act as ${story.story.as}. ${story.story.want}. ${story.story.so}.\n\n` +
+          `Stay on ${new URL(story.start.url).origin}. Do not open other sites. ` +
+          `Stop when these proof conditions are ready to check: ${proofDescriptions(req.proofs).join('; ')}.`,
+        );
+      },
+    });
+    if (proofRun.routeError) throw proofRun.routeError;
+    return { proofs: proofRun.records, notes };
+  });
+  return { actions: captured.actions, ...captured.value };
+}
+
+async function captureLive<T>(
+  url: string,
+  maxSteps: number,
+  visible: boolean,
+  run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
+): Promise<{ actions: CapturedAction[]; value: T }> {
+  const session = await openSharedSession({ evidence: true, headed: visible });
   try {
     const { page, stagehand } = session;
-    await guardOrigin(page, req.url);
-    await page.goto(req.url);
+    await guardOrigin(page, url);
+    await page.goto(url);
 
     const actions: CapturedAction[] = [];
     let pending: CapturedAction[] = [];
@@ -254,7 +312,7 @@ export async function liveDiscover(req: DiscoveryRequest): Promise<Discovery> {
         };
         actions.push(captured);
         pending.push(captured);
-        if (req.visible) console.error(`[attempt] ${captured.method} ${redact(captured.description)}`);
+        if (visible) console.error(`[attempt] ${captured.method} ${redact(captured.description)}`);
       } else if (event.type === 'step_observed') {
         // One probe covers every step since the previous probe (Stagehand's documented semantics).
         for (const p of pending) p.postUrl = String(event.url ?? '');
@@ -262,18 +320,16 @@ export async function liveDiscover(req: DiscoveryRequest): Promise<Discovery> {
       }
     };
 
-    const agent = stagehand.agent({ mode: 'dom' });
-    const result = await agent.execute({
-      instruction:
-        `${req.ticket}\n\nStay on ${new URL(req.url).origin}. Do not open other sites. ` +
-        `Stop as soon as this is true: ${req.contract.checks.map((c) => c.intent).join('; ')}.`,
-      maxSteps: req.maxSteps,
-      page: page as never,
-      callbacks: { onEvidence } as never,
-    });
-
-    const { assertions, unmet } = await bindContract(page, req.contract);
-    return { actions, assertions, unmet, notes: redact(String(result?.message ?? '')) };
+    const execute = async (instruction: string): Promise<string> => {
+      const result = await stagehand.agent({ mode: 'dom' }).execute({
+        instruction,
+        maxSteps,
+        page: page as never,
+        callbacks: { onEvidence } as never,
+      });
+      return redact(String(result?.message ?? ''));
+    };
+    return { actions, value: await run(page, execute) };
   } finally {
     await session.close();
   }

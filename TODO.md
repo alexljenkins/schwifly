@@ -326,6 +326,17 @@ successful steps, measured in at least 3 examples. **Done when:** fixture `[requ
 required]` shrinks to two steps while outcome remains GREEN; state-setting/navigation prerequisites
 survive; identical input produces stable minimized output.
 
+### user-outcome-contracts — durable story and proof → replaceable route · deps: task-to-verified-flow ✅
+**Status:** ✅ done. Strict `.story.yaml` contracts now keep the author-owned ideal, story, and
+proofs separate from the generated route. Built-in and repository-configured proof adapters run
+through one lifecycle during discovery and replay. `attempt <story-file>` saves only a certified
+route. `rebuild <story-file>` preserves a green route or atomically replaces a broken route after a
+second certification. Proof and step logs jointly gate success, and both use isolated worker files.
+
+**Verified:** schema and lifecycle tests stay key-free · generated source typechecks · a real
+Chromium fixture keeps one story byte-identical while interface A is replaced by interface B · the
+old route fails and the rebuilt route passes with AI and healing disabled.
+
 ### recorder-flow-to-spec — record a real flow → workflow · deps: capture normalizer from task-to-verified-flow
 **Status:** ✅ done (v1). `schwifly record <url> [--out workflows/<name>.spec.ts]` opens the pinned
 Playwright codegen browser; closing it transforms the public codegen source into the existing

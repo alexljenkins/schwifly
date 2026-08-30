@@ -1,5 +1,7 @@
 import type { Action } from './workflow';
 import { redact } from './secrets';
+import { dirname, relative, sep } from 'node:path';
+import type { LoadedStory } from './story';
 
 // Render a healable workflow .spec.ts in the EXACT byte-shape of workflows/example.spec.ts:
 // the same imports, `const here = fileURLToPath(import.meta.url)`, and `file: here` on every
@@ -31,6 +33,13 @@ export interface EmitSpec {
   contract?: { summary: string; checks: string[]; source: string };
 }
 
+export interface EmitStorySpec {
+  loaded: LoadedStory;
+  steps: EmitStep[];
+  /** The path where this source runs. Candidate and final paths can differ. */
+  outputFile?: string;
+}
+
 // Valid JS single-quoted string literal, including control and Unicode line-separator escaping.
 // Locators and intents stay plain strings; chained locator objects would break write-back + diff.
 // Exported so write-back (applyHeal) anchors on the SAME `locator: '...'` byte-shape emit wrote.
@@ -45,11 +54,12 @@ function comment(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-function stepLines(s: EmitStep): string {
+function stepLines(s: EmitStep, stepLog = false): string {
   const fields = [`intent: ${q(s.intent)}`, `locator: ${q(s.locator)}`, `action: ${q(s.action)}`];
   if (s.value !== undefined) fields.push(`value: ${q(s.value)}`);
   const page = s.page ?? 'page';
-  const line = `    await step(${page}, { ${fields.join(', ')} }, { resolver: heal, file: here });`;
+  const log = stepLog ? ', stepLog: process.env.SCHWIFLY_STEP_LOG' : '';
+  const line = `    await step(${page}, { ${fields.join(', ')} }, { resolver: heal, file: here${log} });`;
   if (!s.opensPage) return line;
   const wait = s.opensPage.event === 'popup'
     ? `${page}.waitForEvent('popup')`
@@ -112,7 +122,7 @@ export function emit(spec: EmitSpec): string {
     action: 'expectText',
     value: a.value,
   }));
-  const body = [...spec.steps, ...assertSteps].map(stepLines).join('\n');
+  const body = [...spec.steps, ...assertSteps].map((step) => stepLines(step)).join('\n');
 
   // The outcome contract, verbatim in the file: a human reading this spec can see what "success"
   // means without rerunning anything, and can check that the assertions below actually encode it.
@@ -160,4 +170,81 @@ ${body}
   });
 });
 `;
+}
+
+function importPath(fromFile: string, target: string): string {
+  let path = relative(dirname(fromFile), target).replaceAll(sep, '/').replace(/\.ts$/, '');
+  if (!path.startsWith('.')) path = `./${path}`;
+  return path;
+}
+
+export function emitStory(spec: EmitStorySpec): string {
+  const { loaded } = spec;
+  const outputFile = spec.outputFile ?? loaded.routeFile;
+  const fields = [loaded.story.id, loaded.story.title, loaded.relativeFile, ...spec.steps.flatMap((step) => [step.intent, step.locator, step.value ?? ''])];
+  if (fields.some((field) => redact(field) !== field)) {
+    throw new Error('generated workflow input contains a configured or labeled secret');
+  }
+  if (!spec.steps.length) throw new Error('generated story route needs at least one step');
+  const body = spec.steps.map((step) => stepLines(step, true)).join('\n');
+  const src = (name: string) => importPath(outputFile, resolveSource(loaded.root, name));
+  const storyRelative = relative(dirname(outputFile), loaded.file).replaceAll(sep, '/');
+
+  return `import { test } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import { step } from ${q(src('workflow.ts'))};
+import { EscalatingResolver } from ${q(src('heal.ts'))};
+import { openSharedSession, type SharedSession } from ${q(src('sharedCdp.ts'))};
+import { loadStory } from ${q(src('story.ts'))};
+import { loadAndValidateProofs, runProofs, type ValidatedProof } from ${q(src('proofs.ts'))};
+
+// Story ${comment(loaded.story.id)}: ${comment(loaded.story.title)}
+// Source: ${comment(loaded.relativeFile)}
+// This route is generated and replaceable. The story file and its proofs are authoritative.
+const here = fileURLToPath(import.meta.url);
+const storyFile = fileURLToPath(new URL(${q(storyRelative)}, import.meta.url));
+
+test.describe(${q(loaded.story.title)}, () => {
+  test.setTimeout(120_000);
+
+  let session: SharedSession;
+  let proofs: ValidatedProof[];
+  let story: ReturnType<typeof loadStory>;
+  test.beforeAll(async () => {
+    story = loadStory(storyFile);
+    proofs = await loadAndValidateProofs(story);
+    session = await openSharedSession();
+  });
+  test.afterAll(async () => {
+    await session?.close();
+  });
+
+  test(${q(loaded.story.title)}, async () => {
+    const { page, stagehand } = session;
+    const browserContext = page.context();
+    const heal = process.env.SCHWIFLY_NO_HEAL === '1' ? undefined : new EscalatingResolver(stagehand);
+    await page.goto(story.story.start.url);
+    const proofRun = await runProofs({
+      proofs,
+      context: { page, browserContext },
+      file: here,
+      proofLog: process.env.SCHWIFLY_PROOF_LOG,
+      route: async () => {
+${body}
+      },
+    });
+    if (proofRun.routeError) throw proofRun.routeError;
+    const failed = proofRun.records.filter((record) => record.status !== 'pass');
+    if (failed.length) {
+      throw new Error(
+        'proofs failed: ' + failed.map((record) => \`\${record.clauseId}: \${record.message}\`).join('; '),
+      );
+    }
+  });
+});
+`;
+}
+
+function resolveSource(root: string, name: string): string {
+  return `${root.replace(/[\\/]$/, '')}/src/${name}`;
 }

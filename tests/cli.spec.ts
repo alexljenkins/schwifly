@@ -106,3 +106,25 @@ test('record validates its URL and output before opening interactive codegen', (
   expect(output(escape)).toContain('workflows/<name>.spec.ts');
   expect(output(escape)).not.toContain('complete the flow');
 });
+
+test('story attempts reject ticket-owned URL and output flags', () => {
+  for (const args of [
+    ['attempt', 'stories/add.story.yaml', '--url', 'https://example.com'],
+    ['attempt', 'stories/add.story.yaml', '--out', 'workflows/other.spec.ts'],
+  ]) {
+    const result = runCli(args);
+    expect(result.status).toBe(1);
+    expect(output(result)).toContain('a story file owns its URL');
+    expect(output(result)).not.toContain('needs an LLM key');
+  }
+});
+
+test('rebuild requires one story file and rejects unrelated flags', () => {
+  const missing = runCli(['rebuild']);
+  expect(missing.status).toBe(1);
+  expect(output(missing)).toContain('usage: schwifly rebuild');
+
+  const option = runCli(['rebuild', 'stories/add.story.yaml', '--out', 'workflows/x.spec.ts']);
+  expect(option.status).toBe(1);
+  expect(output(option)).toContain('unknown option: --out');
+});

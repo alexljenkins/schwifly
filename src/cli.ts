@@ -11,6 +11,8 @@ import {
 import { clearRunLogs, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
 import { runPlaywright } from './playwrightProcess';
 import { redact } from './secrets';
+import { PROOF_LOG } from './proofLogs';
+import type { ProofRecord } from './proofs';
 
 // schwifly run [path] [playwright options]
 //   run deterministic workflows, report four-state verdicts, then write back only heals from a
@@ -19,6 +21,10 @@ import { redact } from './secrets';
 //   discover locators once and emit a deterministic workflow.
 // schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]
 //   run bounded discovery, certify the captured flow agent-free, then save it without overwrite.
+// schwifly attempt <story.story.yaml> [--visible]
+//   discover and certify a replaceable route against author-owned deterministic proofs.
+// schwifly rebuild <story.story.yaml> [--visible]
+//   keep a green route or replace a broken route after discovery and fresh certification.
 // schwifly record <url> [--out workflows/<name>.spec.ts]
 //   open Playwright codegen, record one human-driven flow, then emit the same healable template.
 const REPORT = '.schwifly/last-run.json';
@@ -26,6 +32,8 @@ const USAGE =
   'usage:\n  schwifly run [path]\n' +
   '  schwifly gen "<story>" --url <start> [--out workflows/<name>.spec.ts]\n' +
   '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]\n' +
+  '  schwifly attempt stories/<name>.story.yaml [--visible]\n' +
+  '  schwifly rebuild stories/<name>.story.yaml [--visible]\n' +
   '  schwifly record <url> [--out workflows/<name>.spec.ts]';
 
 interface CommandInput {
@@ -130,6 +138,7 @@ async function runWorkflows(args: string[]): Promise<number> {
   // No stale evidence may survive into this verdict.
   clearRunLogs(HEAL_LOG);
   clearRunLogs(STEP_LOG);
+  clearRunLogs(PROOF_LOG);
   rmSync(REPORT, { force: true });
 
   const runner = runPlaywright(['test', target, ...playwrightArgs], { stdio: 'inherit' });
@@ -138,9 +147,18 @@ async function runWorkflows(args: string[]): Promise<number> {
     : { suites: [], errors: [] };
   const heals = readRunLogs<HealRecord>(HEAL_LOG);
   const steps = readRunLogs<StepResult>(STEP_LOG);
+  const proofs = readRunLogs<ProofRecord>(PROOF_LOG);
   const verdicts = buildVerdicts(report, heals, steps);
 
   console.log('\n' + renderVerdicts(verdicts) + '\n');
+  const failedProofs = proofs.filter((proof) => proof.status !== 'pass');
+  if (failedProofs.length) {
+    console.log('Proof failures:');
+    for (const proof of failedProofs) {
+      console.log(`  ${proof.storyId}/${proof.clauseId}: ${proof.status}: ${redact(proof.message)}`);
+    }
+    console.log('');
+  }
 
   // A global runner error invalidates the whole evidence set. Otherwise, only heals attached to a
   // fully successful workflow are eligible, and only files inside this workspace can be changed.
@@ -161,7 +179,7 @@ async function runWorkflows(args: string[]): Promise<number> {
 
   const verdictExit = exitCode(verdicts);
   const writeBackFailed = updated !== safe.length || (verdictExit === 0 && safe.length !== heals.length);
-  if (runner.status !== 0 || writeBackFailed) return 1;
+  if (runner.status !== 0 || writeBackFailed || failedProofs.length) return 1;
   return verdictExit;
 }
 
@@ -193,6 +211,15 @@ async function gen(argv: string[]): Promise<number> {
 async function attempt(argv: string[]): Promise<number> {
   const input = parseCommand(argv, ['url', 'out', 'title'], ['visible']);
   const ticket = input.positionals[0];
+  if (input.positionals.length === 1 && ticket?.endsWith('.story.yaml')) {
+    if (input.flags.url || input.flags.out || input.flags.title) {
+      console.error('schwifly attempt: a story file owns its URL, title, and route; remove --url, --title, and --out.');
+      return 1;
+    }
+    const { attemptStory } = await import('./storyAttempt');
+    const result = await attemptStory({ file: ticket, visible: input.flags.visible === true });
+    return reportStoryCommand('attempt', result);
+  }
   const rawUrl = stringFlag(input, 'url');
   if (input.positionals.length !== 1 || !ticket || !rawUrl) {
     console.log(
@@ -222,6 +249,35 @@ async function attempt(argv: string[]): Promise<number> {
   }
   console.log(`schwifly attempt: GREEN on agent-free replay; wrote ${res.saved}`);
   return 0;
+}
+
+function reportStoryCommand(command: 'attempt' | 'rebuild', result: import('./storyAttempt').StoryCommandResult): number {
+  if (!result.ok) {
+    console.error(`schwifly ${command}: FAILED: ${result.reason}`);
+    if (result.certification?.routeFailures.length) {
+      console.error('Route failures:');
+      for (const failure of result.certification.routeFailures) console.error(`  ${failure}`);
+    }
+    if (result.certification?.proofFailures.length) {
+      console.error('Proof failures:');
+      for (const failure of result.certification.proofFailures) console.error(`  ${failure}`);
+    }
+    return 1;
+  }
+  if (result.unchanged) console.log(`schwifly ${command}: route is already green; preserved ${result.saved}`);
+  else console.log(`schwifly ${command}: certified route written to ${result.saved}`);
+  return 0;
+}
+
+async function rebuild(argv: string[]): Promise<number> {
+  const input = parseCommand(argv, [], ['visible']);
+  const file = input.positionals[0];
+  if (input.positionals.length !== 1 || !file?.endsWith('.story.yaml')) {
+    console.log('usage: schwifly rebuild stories/<name>.story.yaml [--visible]');
+    return 1;
+  }
+  const { rebuildStory } = await import('./storyAttempt');
+  return reportStoryCommand('rebuild', await rebuildStory({ file, visible: input.flags.visible === true }));
 }
 
 async function record(argv: string[]): Promise<number> {
@@ -289,6 +345,7 @@ async function main(): Promise<number> {
   const cmd = args[0];
   if (cmd === 'gen') return gen(args.slice(1));
   if (cmd === 'attempt') return attempt(args.slice(1));
+  if (cmd === 'rebuild') return rebuild(args.slice(1));
   if (cmd === 'record') return record(args.slice(1));
   if (cmd === 'run') return runWorkflows(args.slice(1));
   console.log(USAGE);

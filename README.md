@@ -104,6 +104,76 @@ output. Failed candidates stay at a unique `candidates/candidate.<pid>.<id>.spec
 (gitignored) as debug evidence, so concurrent attempts cannot overwrite each other. Successful
 generation and attempts refuse to overwrite an existing workflow.
 
+### User-outcome contracts
+
+A user-outcome contract keeps 4 artifacts separate. The product author owns the long-lived
+`ideal`, one concrete `story`, and deterministic `proofs`. Schwifly owns the generated `route`,
+which can change when the interface changes. AI discovers route actions, but it never creates or
+grades proof results.
+
+Create a strict `.story.yaml` file:
+
+```yaml
+version: 1
+id: add-item
+ideal: user-work-is-never-lost
+title: Add an item and continue working
+start:
+  url: http://127.0.0.1:4173/app
+story:
+  as: a signed-in user
+  want: to add "Buy milk" to my list
+  so: I can continue planning
+route: workflows/add-item.spec.ts
+proofs:
+  must:
+    - id: item-exists
+      use: task.itemExists
+      with: { title: Buy milk }
+  mustNot:
+    - id: no-console-error
+      use: browser.consoleError
+      with: {}
+```
+
+Add product-specific proof adapters in the repository-root `schwifly.config.ts`:
+
+```ts
+import { defineConfig, defineProof } from './src/proofs';
+
+export default defineConfig({
+  proofs: {
+    'task.itemExists': defineProof<{ title: string }>({
+      parse(input) {
+        if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('input must be an object');
+        const title = (input as Record<string, unknown>).title;
+        if (typeof title !== 'string') throw new Error('title must be a string');
+        return { title };
+      },
+      describe: ({ title }) => `the task list contains ${title}`,
+      async arm({ page }, { title }) {
+        return { async check() {
+          const matched = await page.getByRole('listitem', { name: title }).isVisible();
+          return { matched, message: `task ${title} is visible` };
+        } };
+      },
+    }),
+  },
+});
+```
+
+Then discover or rebuild the generated route:
+
+```bash
+GEMINI_API_KEY=… pnpm run schwifly attempt stories/add-item.story.yaml
+GEMINI_API_KEY=… pnpm run schwifly rebuild stories/add-item.story.yaml
+```
+
+`attempt` refuses an existing route. `rebuild` first runs the current route without healing. It
+replaces a broken route only after discovery proofs and a fresh agent-free replay pass. Both
+commands leave the story and config unchanged. The older ticket form of `attempt`, plus `gen`,
+`record`, and `run`, remain compatible.
+
 ### Record a workflow by doing it once
 
 ```bash
