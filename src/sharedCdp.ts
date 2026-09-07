@@ -75,7 +75,7 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
     recordRunnerFailure(expired);
     controller.abort(expired);
     void close();
-  }, opts.timeoutMs ?? SESSION_TIMEOUT_MS);
+  }, Math.min(opts.timeoutMs ?? SESSION_TIMEOUT_MS, SESSION_TIMEOUT_MS));
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
   let page: Page;
