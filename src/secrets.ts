@@ -49,11 +49,35 @@ export function redact<T>(value: T): T {
   return value;
 }
 
-// Scrub `key: value` / `key=value` pairs in free-form text (logs, error strings, CLI output).
-const sessionSecrets = new Set<string>();
-export function registerSecrets(values: string[]): void {
-  for (const value of values) if (value.length >= 4) sessionSecrets.add(value);
+// Values carried by a saved login state. Registering every stored value would replace common
+// preferences (`dark`, `true`, `en-US`) everywhere redact() runs, which breaks generation and
+// corrupts evidence. Only credential-named entries and opaque tokens are registered.
+const CREDENTIAL_KEYS = ['auth', 'session', 'sess', 'token', 'secret', 'password', 'passwd', 'pwd',
+  'jwt', 'sid', 'csrf', 'xsrf', 'credential', 'api_key', 'apikey', 'bearer', 'login', 'email', 'account'];
+const BENIGN_VALUE = /^(?:true|false|null|undefined|none|auto|on|off|yes|no|light|dark|system|\d{1,7})$/i;
+const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.+=~]{24,}$/;
+
+function isCredentialKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return CREDENTIAL_KEYS.some((name) => k.includes(name));
 }
+
+// An opaque token has no spaces, no URL punctuation, and mixes letters with digits. A stored URL,
+// a JSON blob, or a sentence never qualifies; a cookie session token or a JWT does.
+function isOpaqueToken(value: string): boolean {
+  return OPAQUE_TOKEN.test(value) && /\d/.test(value) && /[A-Za-z]/.test(value);
+}
+
+const sessionSecrets = new Set<string>();
+export interface SecretEntry { key: string; value: string }
+export function registerSecrets(entries: SecretEntry[]): void {
+  for (const { key, value } of entries) {
+    if (typeof value !== 'string' || value.length < 4 || BENIGN_VALUE.test(value)) continue;
+    if (isCredentialKey(key) || isOpaqueToken(value)) sessionSecrets.add(value);
+  }
+}
+
+// Scrub `key: value` / `key=value` pairs in free-form text (logs, error strings, CLI output).
 
 function redactString(text: string): string {
   let out = text;

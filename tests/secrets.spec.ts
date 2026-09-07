@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentials, redact, REDACTED } from '../src/secrets';
+import { credentials, redact, registerSecrets, REDACTED } from '../src/secrets';
+import { emit } from '../src/emit';
 import { step, type Resolver } from '../src/workflow';
 
 // Key-free witnesses for the secret store. redact() is the boundary every persist/print must
@@ -88,4 +89,41 @@ test('credentials reads the env contract with safe defaults', () => {
   } finally {
     Object.assign(process.env, saved);
   }
+});
+
+// A saved login state carries preferences next to credentials. Registering every stored value
+// replaced common words everywhere redact() runs, which blocked generation and corrupted evidence.
+test('saved login state registers credentials without swallowing preferences', () => {
+  registerSecrets([
+    { key: 'theme', value: 'dark' },
+    { key: 'view-mode', value: 'list' },
+    { key: 'analytics-opt-in', value: 'true' },
+    { key: 'last-url', value: 'http://127.0.0.1:4173/app/settings' },
+    { key: 'demo_session', value: 'sess-42' },
+    { key: 'ab-bucket', value: 'gh8Kq2Lm4Rt7Vz1Wb9Ns3Xc6' },
+  ]);
+
+  // Benign preferences survive redaction, so a step can still speak about them.
+  expect(redact('toggle dark mode in the list view')).toBe('toggle dark mode in the list view');
+  expect(redact('analytics is true at http://127.0.0.1:4173/app/settings'))
+    .toBe('analytics is true at http://127.0.0.1:4173/app/settings');
+  // A short value under a session-named key and an opaque token are still credentials.
+  expect(redact('cookie sess-42 sent')).toBe(`cookie ${REDACTED} sent`);
+  expect(redact('bearer gh8Kq2Lm4Rt7Vz1Wb9Ns3Xc6')).toBe(`bearer ${REDACTED}`);
+
+  // The emit field guard rejects any input a registered secret would rewrite. A preference must
+  // not make a generated workflow unbuildable.
+  const source = emit({
+    title: 'dark mode',
+    url: 'http://127.0.0.1:4173/app',
+    steps: [{ intent: 'switch to the dark list view', locator: '#theme-dark', action: 'click' }],
+    assertions: [],
+  });
+  expect(source).toContain('#theme-dark');
+  expect(() => emit({
+    title: 'session leak',
+    url: 'http://127.0.0.1:4173/app',
+    steps: [{ intent: 'send sess-42', locator: '#go', action: 'click' }],
+    assertions: [],
+  })).toThrow('secret');
 });

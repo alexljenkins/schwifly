@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { bounded } from './limits.js';
+import { bounded, CancelledError, SessionTimeoutError } from './limits.js';
+import { recordRunnerFailure } from './failureLog.js';
 import { loadConfig, type SetupContext } from './proofs.js';
 import { openSharedSession } from './sharedCdp.js';
 import { redact } from './secrets.js';
@@ -23,6 +24,17 @@ export interface SessionOptions {
 }
 
 export async function openConfiguredSession(options: SessionOptions) {
+  try {
+    return await configuredSession(options);
+  } catch (error) {
+    // The parent owns recovery, and a story route runs in a child process. Record the structured
+    // reason so the report names authentication or setup instead of a bare non-zero exit.
+    recordRunnerFailure(error);
+    throw error;
+  }
+}
+
+async function configuredSession(options: SessionOptions) {
   const root = options.root ?? process.env.SCHWIFLY_ROOT ?? process.cwd();
   const config = await loadConfig(root);
   if (options.story && typeof config.setup !== 'function') {
@@ -46,7 +58,12 @@ export async function openConfiguredSession(options: SessionOptions) {
       throw new SessionError('authentication', 'saved login expired; capture a fresh login state');
     }
     try { await bounded(Promise.resolve(config.setup?.(context)), session.signal); }
-    catch (error) { throw new SessionError('setup', `setup failed: ${redact(String(error))}`); }
+    catch (error) {
+      // Cancellation and the session deadline keep their own kind. Only an app-owned reset
+      // failure is a setup failure.
+      if (error instanceof CancelledError || error instanceof SessionTimeoutError) throw error;
+      throw new SessionError('setup', `setup failed: ${redact(String(error))}`);
+    }
     // Discard page data that predates the app-owned reset.
     await session.page.goto(options.url);
     return session;

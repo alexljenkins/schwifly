@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { attemptStory, rebuildStory, runStory, replayStoryRoute, loadStory, runProofs } from 'schwifly';
 import { openSharedSession } from 'schwifly/sharedCdp';
@@ -122,13 +122,35 @@ try {
   assert.equal(fixed.status, 'certified');
   const suite = JSON.parse(await cli(['suite', 'stories', '--id', 'add-item', '--json']));
   assert.deepEqual(suite.summary, { total: 1, certified: 1, failed: 0 });
+  const routeBeforeSessionFailures = readFileSync('workflows/add-item.spec.ts', 'utf8');
+  const beforeSessionFailures = calls();
   const savedState = JSON.parse(readFileSync('.schwifly/auth/demo.json', 'utf8'));
   savedState.cookies[0].value = 'expired';
   writeFileSync('.schwifly/auth/demo.json', JSON.stringify(savedState));
   await assert.rejects(openConfiguredSession({ root, url, story: loadStory(file, root).story, phase: 'replay' }), /login expired/);
-  writeFileSync('schwifly.config.ts', 'export default {};');
+  // The route replays in a child process. Its session failure must reach the CLI report with the
+  // real kind and a retained runner diagnostic, and must not buy a repair or a rebuild.
+  const expired = JSON.parse(await cli(['run', file, '--json'], 1));
+  assert.equal(expired.failure.kind, 'authentication');
+  // The corrupted cookie value is itself a saved credential, so the report redacts it.
+  assert.match(expired.failure.reason, /capture a fresh login state/);
+  assert.ok(expired.artifacts.some(path => path.endsWith('runner.txt')), JSON.stringify(expired.artifacts));
+  assert.equal(expired.recovery, undefined);
+  assert.equal(readFileSync('workflows/add-item.spec.ts', 'utf8'), routeBeforeSessionFailures);
+
+  const configSource = readFileSync('schwifly.config.ts', 'utf8');
+  writeFileSync('schwifly.config.base.ts', configSource);
+  writeFileSync('schwifly.config.ts', "import base from './schwifly.config.base.ts';\nconst { setup, ...rest } = base;\nexport default rest;\n");
   await assert.rejects(openConfiguredSession({ root, url, story: loadStory(file, root).story, phase: 'replay' }), /missing setup/);
-  console.log(JSON.stringify({ live, model: process.env.SCHWIFLY_MODEL, modelCalls: calls(), scenarios: ['discovery', 'zero-model replay', 'element repair', 'route rebuild', 'outcome regression', 'fixed-app rerun', 'suite', 'expired login', 'missing setup'] }));
+  const noSetup = JSON.parse(await cli(['run', file, '--json'], 1));
+  assert.equal(noSetup.failure.kind, 'setup');
+  assert.match(noSetup.failure.reason, /missing setup/);
+  assert.equal(noSetup.recovery, undefined);
+  assert.equal(readFileSync('workflows/add-item.spec.ts', 'utf8'), routeBeforeSessionFailures);
+  assert.equal(calls(), beforeSessionFailures, 'session failures must not reach the model');
+  writeFileSync('schwifly.config.ts', configSource);
+  rmSync('schwifly.config.base.ts', { force: true });
+  console.log(JSON.stringify({ live, model: process.env.SCHWIFLY_MODEL, modelCalls: calls(), scenarios: ['discovery', 'zero-model replay', 'element repair', 'route rebuild', 'outcome regression', 'fixed-app rerun', 'suite', 'expired login', 'missing setup', 'expired login via CLI', 'missing setup via CLI'] }));
 } finally {
   const exited = new Promise(resolve => server.once('exit', resolve));
   server.kill('SIGTERM');

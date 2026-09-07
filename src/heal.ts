@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { Resolver, StepSpec } from './workflow.js';
-import { llmConfigFromEnv } from './llm.js';
+import { hasModelKey } from './llm.js';
 
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
 
@@ -105,12 +105,12 @@ export class StagehandResolver implements Resolver {
   }
 }
 
-// Build the Stagehand tier ONLY when a key is configured (llmConfigFromEnv() != null).
+// Build the Stagehand tier ONLY when a key is configured (hasModelKey()).
 // Without a key this returns undefined, so the AI backup makes no network call and
 // `pnpm run verify` stays offline. The Stagehand instance comes from the shared-CDP
 // fixture (openSharedSession) so observe() drives the SAME DOM as step()'s Playwright locators.
 export function makeStagehandResolver(stagehand: Stagehand): StagehandResolver | undefined {
-  if (!llmConfigFromEnv()) return undefined;
+  if (!hasModelKey()) return undefined;
   return new StagehandResolver(stagehand);
 }
 

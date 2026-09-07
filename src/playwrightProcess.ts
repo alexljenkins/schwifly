@@ -29,8 +29,12 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   let error: Error | undefined;
   let interrupted = false;
   let cancelled = false;
+  let reaped = false;
   let escalation: NodeJS.Timeout | undefined;
+  // Once the child is reaped its PID is free for reuse, so a negative-PID group signal could
+  // reach an unrelated process group. Every kill after that point is skipped.
   const kill = (signal: NodeJS.Signals) => {
+    if (reaped) return;
     try {
       if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
       else child.kill(signal);
@@ -52,7 +56,7 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   child.once('error', (cause) => { error = cause; });
   try {
     const result = await new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.once('close', (status, signal) => resolve({ status, signal }));
+      child.once('close', (status, signal) => { reaped = true; resolve({ status, signal }); });
     });
     return { ...result, status: interrupted ? 1 : result.status, stdout, stderr, error, cancelled };
   } finally {
@@ -60,6 +64,5 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
     clearTimeout(escalation);
     process.removeListener('SIGINT', cancel);
     process.removeListener('SIGTERM', cancel);
-    kill('SIGKILL');
   }
 }

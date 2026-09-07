@@ -1,4 +1,4 @@
-import { llmConfigFromEnv } from './llm.js';
+import { hasModelKey } from './llm.js';
 import { applyIntentLabels, needsIntentLabel } from './record.js';
 import { openSharedSession } from './sharedCdp.js';
 import type { EmitStep } from './emit.js';
@@ -8,7 +8,7 @@ import type { EmitStep } from './emit.js';
 // reach this one key-gated call; saved workflows remain deterministic and agent-free at runtime.
 export async function labelRecordedIntents(steps: EmitStep[]): Promise<EmitStep[]> {
   const missing = steps.filter(needsIntentLabel);
-  if (!missing.length || !llmConfigFromEnv()) return steps;
+  if (!missing.length || !hasModelKey()) return steps;
 
   const facts = missing.map((step) => ({
     action: step.action ?? 'click',

@@ -239,8 +239,8 @@ async function gen(argv: string[]): Promise<number> {
   const title = stringFlag(input, 'title') ?? 'generated workflow';
   const out = workflowOutput(stringFlag(input, 'out') ?? `workflows/${slugify(title)}.spec.ts`);
 
-  const { llmConfigFromEnv } = await import('./llm.js');
-  if (!llmConfigFromEnv()) {
+  const { hasModelKey } = await import('./llm.js');
+  if (!hasModelKey()) {
     console.error('schwifly gen needs an LLM key (OPENROUTER_API_KEY) to discover locators live.');
     return 1;
   }
@@ -278,8 +278,8 @@ async function attempt(argv: string[]): Promise<number> {
   const title = redact(stringFlag(input, 'title') ?? ticket.slice(0, 60));
   const out = workflowOutput(stringFlag(input, 'out') ?? `workflows/${slugify(title)}.spec.ts`);
 
-  const { llmConfigFromEnv } = await import('./llm.js');
-  if (!llmConfigFromEnv()) {
+  const { hasModelKey } = await import('./llm.js');
+  if (!hasModelKey()) {
     console.error('schwifly attempt needs an LLM key (OPENROUTER_API_KEY) to run the agent attempt.');
     return 1;
   }
@@ -369,8 +369,8 @@ async function record(argv: string[]): Promise<number> {
     let steps = parseCodegen(readFileSync(capture, 'utf8'));
     const opaque = steps.filter(needsIntentLabel).length;
     if (opaque) {
-      const { llmConfigFromEnv } = await import('./llm.js');
-      if (llmConfigFromEnv()) {
+      const { hasModelKey } = await import('./llm.js');
+      if (hasModelKey()) {
         try {
           const { labelRecordedIntents } = await import('./recordLabel.js');
           steps = await labelRecordedIntents(steps);

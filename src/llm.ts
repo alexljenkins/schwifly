@@ -62,6 +62,11 @@ export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderErr
   };
 }
 
+/** Is a provider key configured? Callers that only need this must not build a session model. */
+export function hasModelKey(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY);
+}
+
 export function llmConfigFromEnv(): LlmConfig | null {
-  return process.env.OPENROUTER_API_KEY ? { model: sessionModel() } : null;
+  return hasModelKey() ? { model: sessionModel() } : null;
 }

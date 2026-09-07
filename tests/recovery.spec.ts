@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { rebuildStory, runStory, type CertificationResult } from '../src/storyAttempt';
 
@@ -61,6 +61,9 @@ test('failed repair certification and failed rebuilding preserve the prior route
     expect(result.ok).toBe(false);
     expect(readFileSync(route, 'utf8')).toBe(original);
     expect(existsSync(result.resultPath!)).toBe(true);
+    // The uncertified repair candidate is not evidence anyone can act on, so it is removed.
+    const candidates = resolve(root, 'candidates');
+    expect(existsSync(candidates) ? readdirSync(candidates) : []).toEqual([]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -94,6 +97,39 @@ test('explicit rebuild stops discovery after cancellation', async () => {
       discover: async () => { throw new Error('must not discover after cancellation'); },
     });
     expect(result.report?.failure?.kind).toBe('cancelled');
+    expect(readFileSync(route, 'utf8')).toBe(original);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// A child runner records authentication, setup, provider, and deadline failures. None of them is a
+// locator defect, so neither repair nor rebuild may spend a model call on one.
+const sessionFailure = {
+  ...red,
+  failure: { kind: 'authentication' as const, reason: 'saved login expired; capture a fresh login state' },
+  routeFailures: ['authentication: saved login expired; capture a fresh login state', 'no route steps recorded'],
+};
+
+test('a recorded session failure reports its kind and starts no recovery', async () => {
+  const { root, file, route, original } = fixture();
+  try {
+    const result = await runStory({ root, file, replay: async () => sessionFailure,
+      repair: async () => { throw new Error('must not repair a session failure'); },
+      discover: async () => { throw new Error('must not rediscover a session failure'); },
+    });
+    expect(result.report?.failure?.kind).toBe('authentication');
+    expect(result.report?.failure?.reason).toContain('saved login expired');
+    expect(result.report?.recovery).toBeUndefined();
+    expect(readFileSync(route, 'utf8')).toBe(original);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('explicit rebuild stops discovery after a session failure', async () => {
+  const { root, file, route, original } = fixture();
+  try {
+    const result = await rebuildStory({ root, file, replay: async () => sessionFailure,
+      discover: async () => { throw new Error('must not discover after a session failure'); },
+    });
+    expect(result.report?.failure?.kind).toBe('authentication');
     expect(readFileSync(route, 'utf8')).toBe(original);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

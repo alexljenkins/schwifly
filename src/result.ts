@@ -42,6 +42,7 @@ export async function reportOperation(
     const value = error as { name?: string; kind?: string; cause?: { name?: string }; actions?: CapturedAction[] };
     failureKind = value.name === 'CancelledError' || value.cause?.name === 'CancelledError' ? 'cancelled'
       : value.name === 'ProviderError' || value.cause?.name === 'ProviderError' ? 'provider_failure'
+      : value.name === 'SessionTimeoutError' ? 'browser_failure'
       : value.name === 'ExplorationError' ? 'browser_failure'
       : value.name === 'SessionError' ? value.kind as FailureKind
       : state.phase === 'contract' ? 'invalid_contract'
@@ -53,7 +54,7 @@ export async function reportOperation(
   const failedProofIds = certification?.proofs
     ? certification.proofs.filter(proof => proof.status !== 'pass').map(proof => proof.clauseId)
     : (certification?.proofFailures ?? []).map(failure => failure.split(':')[0]);
-  failureKind ??= result.failureKind ?? (certification?.cancelled ? 'cancelled' : state.phase === 'discovery' ? 'incomplete_exploration'
+  failureKind ??= result.failureKind ?? certification?.failure?.kind ?? (certification?.cancelled ? 'cancelled' : state.phase === 'discovery' ? 'incomplete_exploration'
     : certification?.proofs?.some(proof => proof.status === 'error') ? 'proof_error'
     : certification?.steps?.length === 0 ? 'browser_failure'
     : failedProofIds.length ? 'unmet_outcome' : 'route_failure');

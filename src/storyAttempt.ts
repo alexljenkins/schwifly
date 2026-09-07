@@ -1,6 +1,6 @@
 import { writeRepairDiff } from './repairDiff.js';
 import { applyHeal, type HealRecord } from './workflow.js';
-import { llmConfigFromEnv, ProviderError } from './llm.js';
+import { hasModelKey, ProviderError } from './llm.js';
 import { reportOperation, type FailureKind, type OperationState, type StoryReport } from './result.js';
 import { discoverySteps } from './limits.js';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +19,7 @@ import { emitStory } from './emit.js';
 import { loadAndValidateProofs, type ProofRecord, type ValidatedProof } from './proofs.js';
 import { runPlaywright } from './playwrightProcess.js';
 import { readRunLogs } from './runLogs.js';
+import type { RunnerFailure } from './failureLog.js';
 import { redact } from './secrets.js';
 import { loadStory, type LoadedStory } from './story.js';
 import type { StepResult } from './workflow.js';
@@ -26,6 +27,8 @@ import type { StepResult } from './workflow.js';
 export interface CertificationResult {
   green: boolean;
   cancelled?: boolean;
+  /** Structured session/provider failure reported by the child runner. Never an app defect. */
+  failure?: RunnerFailure;
   heals?: HealRecord[];
   routeFailures: string[];
   proofFailures: string[];
@@ -115,6 +118,7 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory, option
   mkdirSync(evidenceDir, { recursive: true });
   const artifactLog = resolve(evidenceDir, 'artifacts.ndjson');
   const healLog = resolve(evidenceDir, 'heals.ndjson');
+  const failureLog = resolve(evidenceDir, 'failure.ndjson');
   const run = await runPlaywright(['test', file, '--reporter=line'], {
     encoding: 'utf8',
     cwd: loaded.root,
@@ -126,6 +130,7 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory, option
       SCHWIFLY_STEP_LOG: stepLog,
       SCHWIFLY_PROOF_LOG: proofLog,
       SCHWIFLY_ARTIFACT_LOG: artifactLog,
+      SCHWIFLY_FAILURE_LOG: failureLog,
     },
   });
   const steps = readRunLogs<StepResult>(stepLog).filter((record) => recordFileMatches(record, file));
@@ -135,10 +140,18 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory, option
   const gateSteps = options.healing ? steps.map(step => ({ ...step, status: step.status === 'healed' ? 'ok' as const : step.status })) : steps;
   const result = certificationGreen(run.status ?? 1, gateSteps, proofs, expectedClauses(loaded));
   const heals = readRunLogs<HealRecord>(healLog).filter(record => recordFileMatches(record, file));
+  // The child boundary reduces a session failure to a bare exit code. Its recorded reason names
+  // the real cause and keeps the caller from paying for a repair the app cannot fix.
+  const failure = readRunLogs<RunnerFailure>(failureLog)[0];
+  if (failure) result.routeFailures.unshift(`${failure.kind}: ${failure.reason}`);
   if (result.green) rmSync(evidenceDir, { recursive: true, force: true });
   const artifacts = readRunLogs<{ path: string }>(artifactLog).map(record => record.path);
-  if (!result.green) writeFileSync(resolve(evidenceDir, 'runner.txt'), redact(run.stdout + run.stderr));
-  return { ...result, steps, proofs, heals, artifacts, cancelled: run.cancelled };
+  if (!result.green) {
+    const runnerLog = resolve(evidenceDir, 'runner.txt');
+    writeFileSync(runnerLog, redact(run.stdout + run.stderr));
+    artifacts.push(runnerLog);
+  }
+  return { ...result, steps, proofs, heals, artifacts, cancelled: run.cancelled, ...(failure ? { failure } : {}) };
 }
 
 async function replay(
@@ -163,11 +176,8 @@ async function discover(
   loaded: LoadedStory,
   proofs: ValidatedProof[],
 ): Promise<StoryDiscovery> {
-  if (!options.discover) {
-    const { llmConfigFromEnv } = await import('./llm.js');
-    if (!llmConfigFromEnv()) {
-      throw new ProviderError('story discovery needs an LLM key (OPENROUTER_API_KEY)');
-    }
+  if (!options.discover && !hasModelKey()) {
+    throw new ProviderError('story discovery needs an LLM key (OPENROUTER_API_KEY)');
   }
   return (options.discover ?? liveDiscoverStory)({
     loaded,
@@ -253,6 +263,17 @@ async function rebuildStoryWork(options: StoryAttemptOptions, state: OperationSt
   }
 
   if (currentGate.cancelled) return { ok: false, reason: 'rebuild cancelled; prior route preserved', certification: currentGate };
+  // A session, provider, or deadline failure breaks discovery too. Rediscovering would only
+  // repeat it, so the prior route is preserved and the real reason is reported.
+  if (currentGate.failure) {
+    return {
+      ok: false,
+      failureKind: currentGate.failure.kind,
+      saved: display(loaded.root, loaded.routeFile),
+      reason: proofFailureReason(`replay failed; preserved ${display(loaded.root, loaded.routeFile)}: `, currentGate),
+      certification: currentGate,
+    };
+  }
   state.artifacts.push(...currentGate.artifacts ?? []);
   const original = readFileSync(loaded.routeFile, 'utf8');
   state.phase = 'discovery';
@@ -328,42 +349,50 @@ export async function runStory(options: StoryAttemptOptions): Promise<StoryComma
     const original = readFileSync(loaded.routeFile, 'utf8');
     const initial = await replay(options.replay, loaded.routeFile, loaded);
     const failed = (): StoryCommandResult => ({ ok: false, saved: display(loaded.root, loaded.routeFile),
-      certification: initial, reason: proofFailureReason('replay failed; prior route preserved: ', initial) });
+      failureKind: initial.failure?.kind, certification: initial,
+      reason: proofFailureReason('replay failed; prior route preserved: ', initial) });
     if (initial.green) return { ok: true, unchanged: true, saved: display(loaded.root, loaded.routeFile), certification: initial };
-    // Successful route actions plus failed proofs identify an outcome regression, not a locator defect.
-    if (initial.cancelled || process.env.SCHWIFLY_NO_HEAL === '1' ||
+    // Successful route actions plus failed proofs identify an outcome regression, not a locator
+    // defect. A recorded session failure is infrastructure, which no repair or rebuild can fix.
+    if (initial.cancelled || initial.failure || process.env.SCHWIFLY_NO_HEAL === '1' ||
         (initial.steps?.length && initial.steps.every(step => step.status === 'ok'))) return failed();
-    state.artifacts.push(...initial.artifacts ?? []);
     state.phase = 'repair';
     const repaired = await (options.repair ?? ((file, loaded) => replayStoryRoute(file, loaded, { healing: true })))(loaded.routeFile, loaded);
     state.artifacts.push(...repaired.artifacts ?? []);
     if (repaired.cancelled) return { ...failed(), certification: repaired };
     if (repaired.green && repaired.heals?.length) {
       const candidate = candidatePath(loaded.root);
-      writeCandidate(candidate, original);
-      const applied = repaired.heals.every(heal => applyHeal({ ...heal, file: candidate }));
-      if (applied) {
-        state.phase = 'certification';
-        const certified = await replay(options.replay, candidate, loaded);
-        if (certified.cancelled) return { ...failed(), certification: certified };
-        state.artifacts.push(...certified.artifacts ?? []);
-        if (certified.green) {
-          if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
-          const replacement = readFileSync(candidate, 'utf8');
-          const pending = `${loaded.routeFile}.replacement.${randomUUID()}`;
-          try {
-            writeFileSync(pending, replacement, { flag: 'wx' });
+      let saved = false;
+      try {
+        writeCandidate(candidate, original);
+        const applied = repaired.heals.every(heal => applyHeal({ ...heal, file: candidate }));
+        if (applied) {
+          state.phase = 'certification';
+          const certified = await replay(options.replay, candidate, loaded);
+          if (certified.cancelled) return { ...failed(), certification: certified };
+          state.artifacts.push(...certified.artifacts ?? []);
+          if (certified.green) {
             if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
-            renameSync(pending, loaded.routeFile);
-          } finally { rmSync(pending, { force: true }); }
-          rmSync(candidate, { force: true });
-          state.artifacts.push(writeRepairDiff(loaded.root, display(loaded.root, loaded.routeFile), original, replacement));
-          return { ok: true, recovery: 'element', saved: display(loaded.root, loaded.routeFile), certification: certified };
+            const replacement = readFileSync(candidate, 'utf8');
+            const pending = `${loaded.routeFile}.replacement.${randomUUID()}`;
+            try {
+              writeFileSync(pending, replacement, { flag: 'wx' });
+              if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
+              renameSync(pending, loaded.routeFile);
+            } finally { rmSync(pending, { force: true }); }
+            saved = true;
+            state.artifacts.push(writeRepairDiff(loaded.root, display(loaded.root, loaded.routeFile), original, replacement));
+            return { ok: true, recovery: 'element', saved: display(loaded.root, loaded.routeFile), certification: certified };
+          }
         }
+      } finally {
+        // The rebuild below writes its own candidate. An uncertified repair candidate is not
+        // evidence anyone can act on, so it never outlives this attempt.
+        if (!saved) rmSync(candidate, { force: true });
       }
     }
     if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
-    if (!options.discover && !llmConfigFromEnv()) return failed();
+    if (!options.discover && !hasModelKey()) return failed();
     state.phase = 'rebuild';
     // Reuse the initial failed replay. rebuildStory still requires independent candidate certification.
     const rebuilt = await rebuildStory({ ...options, replay: (file, current) =>

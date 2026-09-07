@@ -26,6 +26,35 @@ test('invalid contracts return and persist a versioned result', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+// One unreadable story used to abort the whole selection before any story ran.
+test('an unreadable story never aborts a selected suite', async () => {
+  const root = fixture();
+  try {
+    writeFileSync(resolve(root, 'broken.story.yaml'), 'version: 1');
+    writeFileSync(resolve(root, 'selected.story.yaml'), `version: 1
+id: selected
+ideal: keep-working
+title: Save work
+start: { url: 'http://localhost:4173' }
+story: { as: user, want: save work, so: work is kept }
+route: selected.spec.ts
+proofs:
+  must:
+    - id: saved
+      use: page.url
+      with: { exact: 'http://localhost:4173' }
+`);
+    const discover = async () => ({ actions: [], proofs: [], notes: '' });
+    const selected = await runSuite({ root, directory: '.', ids: ['selected'], discover });
+    expect(selected.results.map(result => result.storyId)).toEqual(['selected']);
+
+    // A requested ID that matches nothing could still be the unreadable file, so the suite
+    // reports that invalid contract instead of throwing before any story runs.
+    const unknown = await runSuite({ root, directory: '.', ids: ['not-a-story'], discover });
+    expect(unknown.results.map(result => result.failure?.kind)).toEqual(['invalid_contract']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('failure screenshots redact known secrets and restore the live DOM', async ({ page }) => {
   const root = fixture();
   const previous = process.env.APP_PASSWORD;

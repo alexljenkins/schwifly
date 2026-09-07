@@ -23,3 +23,8 @@ export async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise
 export class CancelledError extends Error {
   constructor() { super('operation cancelled'); this.name = 'CancelledError'; }
 }
+
+/** The fixed session deadline ran out. Infrastructure, never an app defect: recovery is skipped. */
+export class SessionTimeoutError extends Error {
+  constructor() { super('browser session exceeded its elapsed-time limit'); this.name = 'SessionTimeoutError'; }
+}

@@ -92,6 +92,7 @@ The state path is relative to the consumer root. `check()` returns whether that 
 Missing state and expired login fail before discovery. Login credentials belong in the app's capture script, not generated routes.
 Keep saved state under the ignored `.schwifly/auth/` directory.
 Schwifly restores cookies, localStorage, and IndexedDB through the shared browser connection.
+It redacts saved values stored under credential-named keys and opaque saved tokens. Stored preferences such as `theme=dark` stay readable.
 The initial scope uses 1 identity and serial execution.
 
 To exercise the task example's login, put these values in its `.env`:
@@ -125,6 +126,8 @@ If repair cannot certify the story, Schwifly attempts 1 route rebuild using the 
 Both repair paths require a fresh replay with healing disabled before write-back.
 Failed certification and concurrent route edits preserve the prior route.
 If route actions pass but a proof fails, Schwifly reports an outcome regression without changing the route.
+A login, setup, provider, or session-deadline failure inside the runner reports that kind and starts no recovery.
+The report keeps the runner diagnostic at `.schwifly/certifications/<run>/runner.txt`.
 
 Generated story markers also send workflow-file and workflow-directory runs through story certification.
 Legacy workflows without a story retain their existing locator-repair behavior.
@@ -173,6 +176,7 @@ Authentication, budget, and rate-limit failures return explicit provider errors 
 
 Run browser checks serially. Child runners enforce their own worker limit and terminate their process groups after cancellation.
 Shared sessions close after errors, deadlines, SIGINT, and SIGTERM.
+A session deadline reports a browser failure, so it never buys a repair or a rebuild.
 
 ## Other authoring commands
 
@@ -199,7 +203,8 @@ pnpm run verify:package
 ```
 
 Run those commands separately. Normal verification stays key-free.
-The package check installs an archive in a separate consumer app and exercises authenticated discovery, replay, both recovery paths, and an outcome regression.
+The package check installs an archive in a separate consumer app and exercises authenticated discovery, replay, both recovery paths, an outcome regression, and CLI runs against an expired login and a missing setup hook.
+It copies redacted evidence to `artifacts/consumer/` and removes the temporary consumer after a passing run.
 It uses scripted browser discovery by default. To run the same consumer with live OpenRouter calls:
 
 ```bash

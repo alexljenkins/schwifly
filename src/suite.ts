@@ -31,15 +31,22 @@ export async function runSuite(options: SuiteOptions = {}): Promise<SuiteResult>
   const root = resolve(options.root ?? process.env.SCHWIFLY_ROOT ?? process.cwd());
   let files = storyFiles(resolve(root, options.directory ?? 'stories'));
   if (options.ids?.length) {
+    // A story that cannot be loaded has no ID to compare. It stays a candidate only when a
+    // requested ID is otherwise unaccounted for, so the suite reports the invalid contract
+    // instead of throwing before any selected story runs.
     const found = new Set<string>();
-    files = files.filter(file => {
-      const id = loadStory(file, root).story.id;
-      if (!options.ids!.includes(id)) return false;
+    const matched: string[] = [];
+    const unreadable: string[] = [];
+    for (const file of files) {
+      let id: string;
+      try { id = loadStory(file, root).story.id; } catch { unreadable.push(file); continue; }
+      if (!options.ids.includes(id)) continue;
       found.add(id);
-      return true;
-    });
+      matched.push(file);
+    }
     const missing = options.ids.filter(id => !found.has(id));
-    if (missing.length) throw new Error(`unknown story IDs: ${missing.join(', ')}`);
+    if (missing.length && !unreadable.length) throw new Error(`unknown story IDs: ${missing.join(', ')}`);
+    files = (missing.length ? [...matched, ...unreadable] : matched).sort();
   }
   if (!files.length) throw new Error('no stories selected');
   const results: StoryReport[] = [];

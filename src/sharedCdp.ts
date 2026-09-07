@@ -3,7 +3,8 @@ import { registerSecrets } from './secrets.js';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
 import { sessionModel, type ProviderError } from './llm.js';
-import { bounded, CancelledError, SESSION_TIMEOUT_MS } from './limits.js';
+import { bounded, CancelledError, SessionTimeoutError, SESSION_TIMEOUT_MS } from './limits.js';
+import { recordRunnerFailure } from './failureLog.js';
 
 // Stagehand owns Chromium. Playwright attaches over CDP so model calls and locators share a page.
 // Pass that page explicitly to Stagehand observe, act, and agent execution.
@@ -61,9 +62,18 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
     await browser?.close().catch(() => {});
     await stagehand.close().catch(() => {});
   })();
-  const interrupt = () => { controller.abort(new CancelledError()); void close().finally(() => { process.exitCode = 1; }); };
+  const interrupt = () => {
+    const cancelled = new CancelledError();
+    recordRunnerFailure(cancelled);
+    controller.abort(cancelled);
+    void close().finally(() => { process.exitCode = 1; });
+  };
+  // The deadline is infrastructure exhaustion, not a locator defect, so it is reported as a
+  // browser failure and stops route recovery instead of paying for a repair and a rebuild.
   const timer = setTimeout(() => {
-    controller.abort(new Error('browser session exceeded its elapsed-time limit'));
+    const expired = new SessionTimeoutError();
+    recordRunnerFailure(expired);
+    controller.abort(expired);
     void close();
   }, opts.timeoutMs ?? SESSION_TIMEOUT_MS);
   process.once('SIGINT', interrupt);
@@ -79,8 +89,9 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
       const state = JSON.parse(readFileSync(opts.storageState, 'utf8'));
       if (!Array.isArray(state.cookies) || !Array.isArray(state.origins)) throw new Error('invalid saved login state');
       registerSecrets([
-        ...state.cookies.map((cookie: { value: string }) => cookie.value),
-        ...state.origins.flatMap((origin: { localStorage: Array<{ value: string }> }) => origin.localStorage.map(item => item.value)),
+        ...state.cookies.map((cookie: { name: string; value: string }) => ({ key: cookie.name, value: cookie.value })),
+        ...state.origins.flatMap((origin: { localStorage: Array<{ name: string; value: string }> }) =>
+          origin.localStorage.map(item => ({ key: item.name, value: item.value }))),
       ]);
       // Let Playwright restore the complete state once, including IndexedDB. Stagehand sees
       // this context through the same CDP connection and receives its page explicitly.
