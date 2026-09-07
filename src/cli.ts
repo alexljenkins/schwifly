@@ -197,7 +197,7 @@ async function gen(argv: string[]): Promise<number> {
 
   const { llmConfigFromEnv } = await import('./llm');
   if (!llmConfigFromEnv()) {
-    console.error('schwifly gen needs an LLM key (e.g. GEMINI_API_KEY) to discover locators live.');
+    console.error('schwifly gen needs an LLM key (OPENROUTER_API_KEY) to discover locators live.');
     return 1;
   }
   const { generate } = await import('./generate');
@@ -234,7 +234,7 @@ async function attempt(argv: string[]): Promise<number> {
 
   const { llmConfigFromEnv } = await import('./llm');
   if (!llmConfigFromEnv()) {
-    console.error('schwifly attempt needs an LLM key (e.g. GEMINI_API_KEY) to run the agent attempt.');
+    console.error('schwifly attempt needs an LLM key (OPENROUTER_API_KEY) to run the agent attempt.');
     return 1;
   }
   const { attemptFlow } = await import('./attempt');

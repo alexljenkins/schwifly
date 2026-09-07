@@ -30,7 +30,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
   Check child Playwright processes too. A parent worker limit alone does not constrain separately launched runners.
   Done when failure and interruption leave no owned browser processes, and serial execution is the documented default.
 
-- [ ] **Route model calls through OpenRouter.** Follow the decision below and centralize configuration in `src/llm.ts`.
+- [x] **Route model calls through OpenRouter.** Follow the decision below and centralize configuration in `src/llm.ts`.
   Cover discovery, generation, optional recording labels, and recovery. Missing credentials must leave deterministic runs usable.
   Done when 1 live discovery and 1 forced model repair pass, followed by replay with zero model calls.
   Keep transport and error tests key-free. Record the tested model ID and installed dependency versions.

@@ -141,7 +141,7 @@ async function discover(
   if (!options.discover) {
     const { llmConfigFromEnv } = await import('./llm');
     if (!llmConfigFromEnv()) {
-      throw new Error('story discovery needs an LLM key (e.g. GEMINI_API_KEY)');
+      throw new Error('story discovery needs an LLM key (OPENROUTER_API_KEY)');
     }
   }
   return (options.discover ?? liveDiscoverStory)({

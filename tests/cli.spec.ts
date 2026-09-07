@@ -13,6 +13,7 @@ function runCli(args: string[]): ReturnType<typeof spawnSync> {
   const cwd = mkdtempSync(join(base, 'cli-test-'));
   const env = { ...process.env };
   for (const key of [
+    'OPENROUTER_API_KEY',
     'GEMINI_API_KEY',
     'GOOGLE_API_KEY',
     'GOOGLE_GENERATIVE_AI_API_KEY',

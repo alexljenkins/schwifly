@@ -1,28 +1,62 @@
-import { loadApiKeyFromEnv, type ModelConfiguration } from '@browserbasehq/stagehand';
+import type { ModelConfiguration } from '@browserbasehq/stagehand';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { MODEL_TIMEOUT_MS, bounded } from './limits';
 
-// The env -> model seam. ~20 lines, vendor-agnostic: ONE env var (SCHWIFLY_MODEL) picks the
-// provider+model; Gemini is the default. Stagehand owns the provider -> API-key mapping
-// (google -> GEMINI_API_KEY | GOOGLE_GENERATIVE_AI_API_KEY | GOOGLE_API_KEY), so we never
-// hand-roll that table -- we just ask Stagehand whether a key for this provider is present.
-//
-// Swap providers with NO code change:
-//   SCHWIFLY_MODEL=openai/gpt-4.1-mini   (reads OPENAI_API_KEY)
-//   SCHWIFLY_MODEL=anthropic/claude-...  (reads ANTHROPIC_API_KEY)
-// (We do NOT exercise non-Gemini paths in this repo -- live LLM cost stays ~zero.)
+export const DEFAULT_MODEL = 'google/gemini-3.5-flash-lite';
+export const OPENROUTER_URL = 'https://openrouter.ai/api/v1';
+export interface LlmConfig { model: ModelConfiguration }
+type ModelObject = Exclude<ModelConfiguration, string>;
 
-export const DEFAULT_MODEL = 'google/gemini-2.5-flash';
-
-export interface LlmConfig {
-  model: ModelConfiguration;
+export class ProviderError extends Error {
+  constructor(message: string) { super(message); this.name = 'ProviderError'; }
 }
 
-// Returns the model config when a usable API key exists for the selected provider, else null.
-// Null is the happy-path signal: no key -> no Stagehand tier -> the AI backup stays offline.
+function providerError(error: unknown): ProviderError {
+  const status = (error as { statusCode?: number })?.statusCode;
+  const reason = status === 401 || status === 403 ? 'authentication failed; check OPENROUTER_API_KEY'
+    : status === 402 ? 'budget exhausted; check OpenRouter credit and key limits'
+    : status === 429 ? 'rate limit reached; retry later'
+    : 'request failed or timed out';
+  // A plain error prevents the AI SDK from retrying provider errors. Never include request bodies.
+  return new ProviderError(`OpenRouter ${reason}${status ? ` (HTTP ${status})` : ''}`);
+}
+
+/** One model configuration covers observe, extract, and the DOM agent. No automatic retries. */
+export function sessionModel(signal?: AbortSignal): ModelObject {
+  const modelId = process.env.SCHWIFLY_MODEL ?? DEFAULT_MODEL;
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  let calls = 0;
+  const middleware: NonNullable<ModelObject['middleware']> = {
+    transformParams: async ({ params }) => ({
+      ...params,
+      abortSignal: AbortSignal.any([
+        AbortSignal.timeout(MODEL_TIMEOUT_MS),
+        ...(signal ? [signal] : []),
+        ...(params.abortSignal ? [params.abortSignal] : []),
+      ]),
+    }),
+    wrapGenerate: async ({ doGenerate, params }) => {
+      if (!apiKey || process.env.SCHWIFLY_NO_HEAL === '1') throw new ProviderError('model calls are disabled');
+      if (++calls > 36) throw new ProviderError('model call limit reached');
+      const log = process.env.SCHWIFLY_MODEL_LOG;
+      if (log) {
+        mkdirSync(dirname(log), { recursive: true });
+        appendFileSync(log, JSON.stringify({ model: modelId, call: calls }) + '\n');
+      }
+      try { return await bounded(Promise.resolve(doGenerate()), params.abortSignal!); }
+      catch (error) { throw providerError(error); }
+    },
+  };
+  return {
+    modelName: `openai/${modelId}`,
+    apiKey: apiKey || 'offline',
+    baseURL: OPENROUTER_URL,
+    openaiEndpointFormat: 'chat',
+    middleware,
+  };
+}
+
 export function llmConfigFromEnv(): LlmConfig | null {
-  const model = process.env.SCHWIFLY_MODEL ?? DEFAULT_MODEL;
-  const provider = model.includes('/') ? model.split('/')[0] : 'google';
-  // Stagehand resolves provider -> env var(s) itself; we pass a no-op logger and treat a
-  // returned key as "configured". No provider->envvar table lives in this codebase.
-  const key = loadApiKeyFromEnv(provider, () => {});
-  return key ? { model } : null;
+  return process.env.OPENROUTER_API_KEY ? { model: sessionModel() } : null;
 }

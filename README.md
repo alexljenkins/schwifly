@@ -58,8 +58,7 @@ Ids and classes churn on every deploy; accessible names don't.
 
 **Tier 2, `StagehandResolver`.** LLM escalation for what the heuristic can't find: a toggle with
 no accessible name, a label that changed along with the id. Wraps Stagehand's `observe(intent,
-{page})`, so it's agent-agnostic. Gemini, OpenAI, or Anthropic, swapped with `SCHWIFLY_MODEL`, no
-code change. **Live-proven** on `gemini-2.5-flash`, which healed a `#dark-mode-toggle-OLD` locator
+{page})`. `SCHWIFLY_MODEL` selects an OpenRouter model ID. **Live-proven** on `gemini-2.5-flash`, which healed a `#dark-mode-toggle-OLD` locator
 with zero accessible name to `xpath=…/button[1]` after the heuristic gave up.
 
 **`EscalatingResolver`** is what workflows actually use: tier 1 first, tier 2 only when tier 1
@@ -128,7 +127,7 @@ pnpm run typecheck
 `pnpm run verify` is the fastest way to see the engine work: it drives real Chromium against a
 free public site, breaks a locator, and asserts the heuristic resolver heals it, all with no API
 key. Nothing in this repo requires a paid service; the only optional cost is your own LLM key for
-tier-2 heals (Gemini Flash is effectively free).
+tier-2 heals through OpenRouter.
 
 ## Building a workflow
 
@@ -162,7 +161,7 @@ saved spec.
 
 ```bash
 # the `--` is required so pnpm forwards --url to the CLI, not to itself
-GEMINI_API_KEY=… pnpm run schwifly gen \
+OPENROUTER_API_KEY=… pnpm run schwifly gen \
   "Open pricing and check the Pro plan costs 19" -- --url https://example.com
 ```
 
@@ -184,7 +183,7 @@ steps: that's a story that describes state rather than action, not a bug.
 <summary><strong>schwifly attempt: hand it a ticket, get back a verified workflow</strong></summary>
 
 ```bash
-GEMINI_API_KEY=… pnpm run schwifly attempt \
+OPENROUTER_API_KEY=… pnpm run schwifly attempt \
   "Add an element to the list. <expect>Delete</expect>" -- \
   --url https://the-internet.herokuapp.com/add_remove_elements/ \
   --out workflows/add-element.spec.ts
@@ -271,8 +270,8 @@ export default defineConfig({
 Then discover or rebuild the generated route:
 
 ```bash
-GEMINI_API_KEY=… pnpm run schwifly attempt stories/add-item.story.yaml
-GEMINI_API_KEY=… pnpm run schwifly rebuild stories/add-item.story.yaml
+OPENROUTER_API_KEY=… pnpm run schwifly attempt stories/add-item.story.yaml
+OPENROUTER_API_KEY=… pnpm run schwifly rebuild stories/add-item.story.yaml
 ```
 
 `attempt` refuses an existing route. `rebuild` first runs the current route without healing. It
@@ -323,9 +322,8 @@ callbacks are experimental and their shapes are version-sensitive.
 
 This is a v1 hero loop, not a mature platform. Worth knowing before you lean on it:
 
-- **The LLM heal tier is proven live on exactly one model.** Gemini 2.5 Flash healed a real broken
-  locator in this repo's own validation. The `SCHWIFLY_MODEL` provider-swap to OpenAI or Anthropic
-  is implemented and typechecked but hasn't been exercised against a live model yet.
+- OpenRouter discovery and forced repair pass with `google/gemini-3.5-flash-lite`.
+  Fresh replay makes zero model calls. See [the checks](docs/testing-suite-progress.md).
 - **Generated and attempted workflows don't inherit auth.** They run in their own Stagehand-owned
   browser context rather than the `workflows` project's `storageState`, so `gen`/`attempt` against
   a page that requires login doesn't work today. No consumer has needed it yet, so the
