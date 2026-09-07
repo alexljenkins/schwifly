@@ -34,6 +34,9 @@ export interface SharedSessionOptions {
 }
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
+  if (opts.timeoutMs !== undefined && (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0)) {
+    throw new Error('timeoutMs must be a positive finite number');
+  }
   const controller = new AbortController();
   let providerFailure: ProviderError | undefined;
   const model = sessionModel(controller.signal, error => { providerFailure = error; recordRunnerFailure(error); });

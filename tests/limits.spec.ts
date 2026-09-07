@@ -11,6 +11,14 @@ test('discovery rejects invalid budgets and cancellation stops waiting', async (
   await expect(pending).rejects.toThrow('cancelled');
 });
 
+test('a session rejects invalid deadlines before browser startup', async () => {
+  const listeners = process.listenerCount('SIGTERM');
+  for (const timeoutMs of [0, -1, NaN, Infinity]) {
+    await expect(openSharedSession({ timeoutMs })).rejects.toThrow('timeoutMs must be a positive finite number');
+  }
+  expect(process.listenerCount('SIGTERM')).toBe(listeners);
+});
+
 test('a session deadline closes its browser and removes signal handlers', async () => {
   test.setTimeout(30_000);
   const listeners = process.listenerCount('SIGTERM');
