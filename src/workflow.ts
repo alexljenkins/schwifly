@@ -1,3 +1,4 @@
+import { captureFailure } from './evidence.js';
 import { type Page, type Locator, expect } from '@playwright/test';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -27,6 +28,8 @@ export interface Resolver {
 export type StepStatus = 'ok' | 'healed' | 'failed';
 
 export interface StepResult {
+  action?: Action;
+  value?: string;
   intent: string;
   status: StepStatus;
   usedLocator: string;
@@ -82,7 +85,8 @@ function appendNdjson(path: string, rec: unknown): void {
 
 export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): Promise<StepResult> {
   const timeout = opts.timeout ?? 5000;
-  const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file });
+  const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file, action: spec.action ?? 'click', ...(spec.value === undefined ? {} : { value: spec.value }) });
+  if (result.status === 'failed') await captureFailure(page);
   appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), result);
   return result;
 }

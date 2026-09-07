@@ -19,3 +19,7 @@ export async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise
   try { return await Promise.race([work, cancelled]); }
   finally { signal.removeEventListener('abort', abort); }
 }
+
+export class CancelledError extends Error {
+  constructor() { super('operation cancelled'); this.name = 'CancelledError'; }
+}

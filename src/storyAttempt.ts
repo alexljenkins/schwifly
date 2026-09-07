@@ -1,3 +1,5 @@
+import { ProviderError } from './llm.js';
+import { reportOperation, type FailureKind, type OperationState, type StoryReport } from './result.js';
 import { discoverySteps } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -21,11 +23,18 @@ import type { StepResult } from './workflow.js';
 
 export interface CertificationResult {
   green: boolean;
+  cancelled?: boolean;
   routeFailures: string[];
   proofFailures: string[];
+  steps?: StepResult[];
+  proofs?: ProofRecord[];
+  artifacts?: string[];
 }
 
 export interface StoryCommandResult {
+  report?: StoryReport;
+  resultPath?: string;
+  failureKind?: FailureKind;
   ok: boolean;
   unchanged?: boolean;
   saved?: string;
@@ -91,21 +100,24 @@ export function certificationGreen(
 }
 
 function discoveryProofsGreen(records: ProofRecord[], expected: string[]): CertificationResult {
-  return certificationGreen(0, [{ intent: 'discovery route', status: 'ok', usedLocator: 'discovery' }], records, expected);
+  return { ...certificationGreen(0, [{ intent: 'discovery route', status: 'ok', usedLocator: 'discovery' }], records, expected), proofs: records };
 }
 
 export async function replayStoryRoute(file: string, loaded: LoadedStory): Promise<CertificationResult> {
   const evidenceDir = resolve(loaded.root, '.schwifly', 'certifications', `${process.pid}.${randomUUID()}`);
   const stepLog = resolve(evidenceDir, 'steps.ndjson');
   const proofLog = resolve(evidenceDir, 'proofs.ndjson');
+  mkdirSync(evidenceDir, { recursive: true });
+  const artifactLog = resolve(evidenceDir, 'artifacts.ndjson');
   const run = await runPlaywright(['test', file, '--reporter=line'], {
-    stdio: 'inherit',
+    encoding: 'utf8',
     cwd: loaded.root,
     env: {
       ...process.env,
       SCHWIFLY_NO_HEAL: '1',
       SCHWIFLY_STEP_LOG: stepLog,
       SCHWIFLY_PROOF_LOG: proofLog,
+      SCHWIFLY_ARTIFACT_LOG: artifactLog,
     },
   });
   const steps = readRunLogs<StepResult>(stepLog).filter((record) => recordFileMatches(record, file));
@@ -114,7 +126,9 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory): Promi
   );
   const result = certificationGreen(run.status ?? 1, steps, proofs, expectedClauses(loaded));
   if (result.green) rmSync(evidenceDir, { recursive: true, force: true });
-  return result;
+  const artifacts = readRunLogs<{ path: string }>(artifactLog).map(record => record.path);
+  if (!result.green) writeFileSync(resolve(evidenceDir, 'runner.txt'), redact(run.stdout + run.stderr));
+  return { ...result, steps, proofs, artifacts, cancelled: run.cancelled };
 }
 
 async function replay(
@@ -142,7 +156,7 @@ async function discover(
   if (!options.discover) {
     const { llmConfigFromEnv } = await import('./llm.js');
     if (!llmConfigFromEnv()) {
-      throw new Error('story discovery needs an LLM key (OPENROUTER_API_KEY)');
+      throw new ProviderError('story discovery needs an LLM key (OPENROUTER_API_KEY)');
     }
   }
   return (options.discover ?? liveDiscoverStory)({
@@ -159,12 +173,20 @@ function writeCandidate(file: string, source: string): void {
 }
 
 export async function attemptStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, state => attemptStoryWork(options, state));
+}
+
+async function attemptStoryWork(options: StoryAttemptOptions, state: OperationState): Promise<StoryCommandResult> {
   const loaded = loadStory(options.file, options.root);
+  state.loaded = loaded;
   if (existsSync(loaded.routeFile)) {
     return { ok: false, reason: redact(`route already exists: ${display(loaded.root, loaded.routeFile)}`) };
   }
   const proofs = await loadAndValidateProofs(loaded);
+  state.phase = 'discovery';
   const found = await discover(options, loaded, proofs);
+  state.actions = found.actions;
+  state.artifacts = found.artifacts ?? [];
   const discoveryGate = discoveryProofsGreen(found.proofs, expectedClauses(loaded));
   if (!discoveryGate.green) {
     return { ok: false, reason: proofFailureReason('discovery failed: ', discoveryGate), certification: discoveryGate };
@@ -174,6 +196,7 @@ export async function attemptStory(options: StoryAttemptOptions): Promise<StoryC
 
   const candidate = candidatePath(loaded.root);
   writeCandidate(candidate, emitStory({ loaded, steps, outputFile: candidate }));
+  state.phase = 'certification';
   const candidateGate = await replay(options.replay, candidate, loaded);
   if (!candidateGate.green) {
     return {
@@ -203,18 +226,27 @@ export async function attemptStory(options: StoryAttemptOptions): Promise<StoryC
 }
 
 export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, state => rebuildStoryWork(options, state));
+}
+
+async function rebuildStoryWork(options: StoryAttemptOptions, state: OperationState): Promise<StoryCommandResult> {
   const loaded = loadStory(options.file, options.root);
+  state.loaded = loaded;
   if (!existsSync(loaded.routeFile)) {
     return { ok: false, reason: `route does not exist: ${display(loaded.root, loaded.routeFile)}` };
   }
   const proofs = await loadAndValidateProofs(loaded);
+  state.phase = 'replay';
   const currentGate = await replay(options.replay, loaded.routeFile, loaded);
   if (currentGate.green) {
     return { ok: true, unchanged: true, saved: display(loaded.root, loaded.routeFile), certification: currentGate };
   }
 
   const original = readFileSync(loaded.routeFile, 'utf8');
+  state.phase = 'discovery';
   const found = await discover(options, loaded, proofs);
+  state.actions = found.actions;
+  state.artifacts = found.artifacts ?? [];
   const discoveryGate = discoveryProofsGreen(found.proofs, expectedClauses(loaded));
   if (!discoveryGate.green) {
     return {
@@ -231,6 +263,7 @@ export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryC
 
   const candidate = candidatePath(loaded.root);
   writeCandidate(candidate, emitStory({ loaded, steps, outputFile: candidate }));
+  state.phase = 'certification';
   const candidateGate = await replay(options.replay, candidate, loaded);
   if (!candidateGate.green) {
     return {
@@ -271,4 +304,16 @@ export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryC
   }
   rmSync(candidate, { force: true });
   return { ok: true, saved: display(loaded.root, loaded.routeFile), certification: candidateGate };
+}
+
+export async function runStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, async state => {
+    const loaded = loadStory(options.file, options.root);
+    state.loaded = loaded;
+    await loadAndValidateProofs(loaded);
+    state.phase = 'replay';
+    const certification = await replay(options.replay, loaded.routeFile, loaded);
+    return { ok: certification.green, saved: display(loaded.root, loaded.routeFile), certification,
+      ...(certification.green ? {} : { reason: proofFailureReason('replay failed: ', certification) }) };
+  });
 }

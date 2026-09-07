@@ -45,7 +45,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
   Start with serial use of 1 test identity. Keep credentials and session files out of generated source and reports.
   Done when a login-required story passes in fresh sessions, while expired login and missing setup fail clearly.
 
-- [ ] **Return evidence that builders can use.** Add a versioned machine-readable result beside the human report.
+- [x] **Return evidence that builders can use.** Add a versioned machine-readable result beside the human report.
   Include story ID, phase, observed actions, failed proof IDs, failure reason, and paths to redacted traces or screenshots.
   Distinguish unmet outcomes, incomplete exploration, invalid contracts, and browser/provider failures. Preserve existing CLI compatibility where practical.
   Add suite selection and aggregate results so another repo can run its stories without a custom script per story.

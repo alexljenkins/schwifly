@@ -46,3 +46,15 @@ Session values join the redaction set and never enter generated workflow source.
   Expired login and missing setup return explicit failures.
 - A live OpenRouter repair passes in a context restored from saved state. Replay makes 0 model calls.
 - The 17 focused auth, redaction, and generator checks pass. Refreshed localStorage survives navigation.
+
+## 5. Builder results
+
+Version 1 reports identify the story, phase, actions, failed proof IDs, failure kind, and redacted screenshot paths.
+Reports are immutable files under the consumer's `.schwifly/results/` directory.
+Suite reports aggregate those records. Story IDs select work without a custom script.
+Invalid contracts also produce reports. Existing API result fields remain available.
+- The external caller receives `task-created` as the failed proof for a real app regression.
+  After the app correction, the same story is certified. Suite selection returns matching aggregate counts.
+- Typecheck, 13 focused result/recovery/cleanup checks, and the packed consumer check pass.
+- Screenshot checks inspect the redacted DOM and masks when the real screenshot call runs.
+  Pixel-byte equality proved sensitive to rendering timing, so it is not the redaction gate.

@@ -1,3 +1,4 @@
+import { captureFailure } from './evidence.js';
 import { bounded, discoverySteps, MAX_DISCOVERY_STEPS } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -88,6 +89,7 @@ export interface StoryDiscoveryRequest {
 }
 
 export interface StoryDiscovery {
+  artifacts?: string[];
   actions: CapturedAction[];
   proofs: ProofRecord[];
   notes: string;
@@ -269,7 +271,8 @@ export async function liveDiscoverStory(req: StoryDiscoveryRequest): Promise<Sto
       },
     });
     if (proofRun.routeError) throw proofRun.routeError;
-    return { proofs: proofRun.records, notes };
+    const artifact = proofRun.records.some(proof => proof.status !== 'pass') ? await captureFailure(page, req.loaded.root) : undefined;
+    return { proofs: proofRun.records, notes, artifacts: artifact ? [artifact] : [] };
   }, () => openConfiguredSession({ root: req.loaded.root, url: story.start.url, story, phase: 'discovery', evidence: true, headed: req.visible }));
   return { actions: captured.actions, ...captured.value };
 }
@@ -282,12 +285,12 @@ async function captureLive<T>(
   open = () => openConfiguredSession({ url, phase: 'discovery', evidence: true, headed: visible }),
 ): Promise<{ actions: CapturedAction[]; value: T }> {
   const session = await open();
+  const actions: CapturedAction[] = [];
   try {
     const { page, stagehand } = session;
     await guardOrigin(page, url);
     await page.goto(url);
 
-    const actions: CapturedAction[] = [];
     let pending: CapturedAction[] = [];
     // Stagehand wraps tool results in an AI SDK envelope: the native return value (and with it
     // the real Playwright selector) lives at result.output, not result.
@@ -334,6 +337,8 @@ async function captureLive<T>(
       return redact(String(result?.message ?? ''));
     };
     return { actions, value: await run(page, execute) };
+  } catch (cause) {
+    throw Object.assign(new Error(redact(String(cause)), { cause }), { name: 'ExplorationError', actions: redact(actions) });
   } finally {
     await session.close();
   }

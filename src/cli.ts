@@ -30,6 +30,7 @@ import type { ProofRecord } from './proofs.js';
 const REPORT = '.schwifly/last-run.json';
 const USAGE =
   'usage (all commands accept --root <directory>):\n  schwifly init\n  schwifly run [path]\n' +
+  '  schwifly suite [stories-directory] [--id <id,id>] [--json]\n' +
   '  schwifly gen "<story>" --url <start> [--out workflows/<name>.spec.ts]\n' +
   '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]\n' +
   '  schwifly attempt stories/<name>.story.yaml [--visible]\n' +
@@ -130,6 +131,15 @@ function insideWorkspace(file: string | undefined): file is string {
 }
 
 async function runWorkflows(args: string[]): Promise<number> {
+  if (args[0]?.endsWith('.story.yaml')) {
+    const input = parseCommand(args, [], ['json']);
+    if (input.positionals.length !== 1) throw new Error('run needs exactly one story file');
+    const { runStory } = await import('./storyAttempt.js');
+    const result = await runStory({ file: input.positionals[0] });
+    if (input.flags.json) console.log(JSON.stringify(result.report));
+    else reportStoryCommand('run', result);
+    return result.ok ? 0 : 1;
+  }
   const hasTarget = args[0] !== undefined && !args[0].startsWith('-');
   const target = hasTarget ? args[0] : 'workflows/';
   const playwrightArgs = hasTarget ? args.slice(1) : args;
@@ -208,7 +218,7 @@ async function gen(argv: string[]): Promise<number> {
 }
 
 async function attempt(argv: string[]): Promise<number> {
-  const input = parseCommand(argv, ['url', 'out', 'title'], ['visible']);
+  const input = parseCommand(argv, ['url', 'out', 'title'], ['visible', 'json']);
   const ticket = input.positionals[0];
   if (input.positionals.length === 1 && ticket?.endsWith('.story.yaml')) {
     if (input.flags.url || input.flags.out || input.flags.title) {
@@ -217,8 +227,10 @@ async function attempt(argv: string[]): Promise<number> {
     }
     const { attemptStory } = await import('./storyAttempt.js');
     const result = await attemptStory({ file: ticket, visible: input.flags.visible === true });
+    if (input.flags.json) { console.log(JSON.stringify(result.report)); return result.ok ? 0 : 1; }
     return reportStoryCommand('attempt', result);
   }
+  if (input.flags.json) throw new Error('--json requires a .story.yaml file');
   const rawUrl = stringFlag(input, 'url');
   if (input.positionals.length !== 1 || !ticket || !rawUrl) {
     console.log(
@@ -250,7 +262,8 @@ async function attempt(argv: string[]): Promise<number> {
   return 0;
 }
 
-function reportStoryCommand(command: 'attempt' | 'rebuild', result: import('./storyAttempt.js').StoryCommandResult): number {
+function reportStoryCommand(command: 'attempt' | 'rebuild' | 'run', result: import('./storyAttempt.js').StoryCommandResult): number {
+  if (result.resultPath) console.log(`result: ${result.resultPath}`);
   if (!result.ok) {
     console.error(`schwifly ${command}: FAILED: ${result.reason}`);
     if (result.certification?.routeFailures.length) {
@@ -263,20 +276,23 @@ function reportStoryCommand(command: 'attempt' | 'rebuild', result: import('./st
     }
     return 1;
   }
-  if (result.unchanged) console.log(`schwifly ${command}: route is already green; preserved ${result.saved}`);
+  if (command === 'run') console.log(`schwifly run: certified ${result.saved}`);
+  else if (result.unchanged) console.log(`schwifly ${command}: route is already green; preserved ${result.saved}`);
   else console.log(`schwifly ${command}: certified route written to ${result.saved}`);
   return 0;
 }
 
 async function rebuild(argv: string[]): Promise<number> {
-  const input = parseCommand(argv, [], ['visible']);
+  const input = parseCommand(argv, [], ['visible', 'json']);
   const file = input.positionals[0];
   if (input.positionals.length !== 1 || !file?.endsWith('.story.yaml')) {
     console.log('usage: schwifly rebuild stories/<name>.story.yaml [--visible]');
     return 1;
   }
   const { rebuildStory } = await import('./storyAttempt.js');
-  return reportStoryCommand('rebuild', await rebuildStory({ file, visible: input.flags.visible === true }));
+  const result = await rebuildStory({ file, visible: input.flags.visible === true });
+  if (input.flags.json) { console.log(JSON.stringify(result.report)); return result.ok ? 0 : 1; }
+  return reportStoryCommand('rebuild', result);
 }
 
 async function record(argv: string[]): Promise<number> {
@@ -360,6 +376,19 @@ async function main(): Promise<number> {
     return 0;
   }
   if (args.includes('--help')) { console.log(USAGE); return 0; }
+  if (cmd === 'suite') {
+    const input = parseCommand(args.slice(1), ['id'], ['json']);
+    if (input.positionals.length > 1) throw new Error('suite accepts one story directory');
+    const { runSuite } = await import('./suite.js');
+    const result = await runSuite({ directory: input.positionals[0], ids: stringFlag(input, 'id')?.split(',') });
+    if (input.flags.json) console.log(JSON.stringify(result));
+    else {
+      console.log(`stories[${result.results.length}]{id,status,phase}:`);
+      for (const story of result.results) console.log(`  ${JSON.stringify(story.storyId)},${story.status},${story.phase}`);
+      console.log(`result: ${result.resultPath}`);
+    }
+    return result.ok ? 0 : 1;
+  }
   if (cmd === 'gen') return gen(args.slice(1));
   if (cmd === 'attempt') return attempt(args.slice(1));
   if (cmd === 'rebuild') return rebuild(args.slice(1));

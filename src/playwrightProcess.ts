@@ -28,6 +28,7 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   let stderr = '';
   let error: Error | undefined;
   let interrupted = false;
+  let cancelled = false;
   let escalation: NodeJS.Timeout | undefined;
   const kill = (signal: NodeJS.Signals) => {
     try {
@@ -35,14 +36,16 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
       else child.kill(signal);
     } catch { /* The child has already exited. */ }
   };
-  const stop = () => {
+  const stop = (userCancelled: boolean) => {
+    cancelled ||= userCancelled;
     interrupted = true;
     kill('SIGTERM');
     escalation ??= setTimeout(() => kill('SIGKILL'), 3000);
   };
-  const timer = setTimeout(stop, timeout);
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+  const cancel = () => stop(true);
+  const timer = setTimeout(() => stop(false), timeout);
+  process.once('SIGINT', cancel);
+  process.once('SIGTERM', cancel);
   child.stdout?.on('data', (data) => { stdout += data; });
   child.stderr?.on('data', (data) => { stderr += data; });
   child.once('error', (cause) => { error = cause; });
@@ -50,12 +53,12 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
     const result = await new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.once('close', (status, signal) => resolve({ status, signal }));
     });
-    return { ...result, status: interrupted ? 1 : result.status, stdout, stderr, error };
+    return { ...result, status: interrupted ? 1 : result.status, stdout, stderr, error, cancelled };
   } finally {
     clearTimeout(timer);
     clearTimeout(escalation);
-    process.removeListener('SIGINT', stop);
-    process.removeListener('SIGTERM', stop);
+    process.removeListener('SIGINT', cancel);
+    process.removeListener('SIGTERM', cancel);
     kill('SIGKILL');
   }
 }

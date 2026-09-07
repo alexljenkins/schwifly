@@ -130,7 +130,9 @@ test('unknown adapters and invalid inputs fail before discovery', async () => {
   for (const item of [fixture({ use: 'missing.proof' }), fixture({ input: 'exact: one\n        contains: two' })]) {
     let discovered = false;
     try {
-      await expect(attemptStory({ file: item.file, root: repo, discover: async (request) => { discovered = true; return discovery()(request); } })).rejects.toThrow(/invalid proofs/);
+      const result = await attemptStory({ file: item.file, root: repo, discover: async (request) => { discovered = true; return discovery()(request); } });
+      expect(result.report?.failure?.kind).toBe('invalid_contract');
+      expect(result.reason).toContain('invalid proofs');
       expect(discovered).toBe(false);
     } finally {
       rmSync(item.dir, { recursive: true, force: true });

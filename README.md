@@ -420,3 +420,25 @@ For your own app, configure `session.storageState` and `session.check()`.
 Keep the state file under the ignored `.schwifly/auth/` directory.
 Schwifly restores cookies, localStorage, and IndexedDB into fresh sessions through the shared browser connection.
 The initial scope uses 1 identity and serial execution.
+
+## Results for builders
+
+Story commands write version 1 JSON under `.schwifly/results/` beside their human output.
+Use `--json` on story commands for JSON on stdout:
+
+```bash
+pnpm exec schwifly run stories/add-item.story.yaml --json
+pnpm exec schwifly suite stories --id add-item --json
+```
+
+Suites run selected stories serially. Missing routes use discovery. Existing routes use replay.
+Omit `--id` to select all stories. Use comma-separated IDs to select several stories.
+The suite result contains each story result and aggregate counts.
+
+Each story result includes `storyId`, `phase`, `observedActions`, `failedProofIds`, `failure`, and `artifacts`.
+Failures distinguish invalid contracts, incomplete exploration, unmet outcomes, route failures, provider failures, login, setup, and browser failures.
+A failed exploration does not prove that the app cannot meet the story.
+All failures exit non-zero. A caller can identify a failed proof, fix the app, and rerun the same story.
+
+Failure screenshots mask form fields, known secret text, and elements marked `data-schwifly-private` or `data-private`.
+Artifact paths are relative to the consumer root. Session files stay under the ignored auth directory.

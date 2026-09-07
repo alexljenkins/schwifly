@@ -3,7 +3,7 @@ import { registerSecrets } from './secrets.js';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
 import { sessionModel } from './llm.js';
-import { bounded, SESSION_TIMEOUT_MS } from './limits.js';
+import { bounded, CancelledError, SESSION_TIMEOUT_MS } from './limits.js';
 
 // Shared-CDP substrate: Stagehand OWNS Chromium, Playwright ATTACHES over CDP, so
 // Stagehand observe()/act() and step()'s Playwright locators drive the SAME DOM.
@@ -67,7 +67,7 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
     await browser?.close().catch(() => {});
     await stagehand.close().catch(() => {});
   })();
-  const interrupt = () => { void close().finally(() => { process.exitCode = 1; }); };
+  const interrupt = () => { controller.abort(new CancelledError()); void close().finally(() => { process.exitCode = 1; }); };
   const timer = setTimeout(() => {
     controller.abort(new Error('browser session exceeded its elapsed-time limit'));
     void close();

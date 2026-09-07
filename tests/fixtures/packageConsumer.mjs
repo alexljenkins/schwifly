@@ -31,13 +31,15 @@ try {
   await login.page.context().storageState({ path: '.schwifly/auth/demo.json' });
 } finally { await login.close(); }
 
-async function cli(args) {
+async function cli(args, expectedCode = 0) {
   const child = spawn('pnpm', ['exec', 'schwifly', ...args], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
+  let errors = '';
   child.stdout.on('data', chunk => { output += chunk; });
-  child.stderr.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { errors += chunk; });
   const code = await new Promise(resolve => child.once('close', resolve));
-  assert.equal(code, 0, output);
+  assert.equal(code, expectedCode, output + errors);
+  return output;
 }
 const discover = version => async request => {
   const session = await openConfiguredSession({ root, url, story: request.loaded.story, phase: 'discovery' });
@@ -86,6 +88,17 @@ try {
   assert.equal(rebuilt.ok, true, rebuilt.reason);
   assert.equal(readFileSync(file, 'utf8'), originalStory);
   assert.equal((await replayStoryRoute(resolve('workflows/add-item.spec.ts'), loadStory(file, root))).green, true);
+  writeFileSync(state, 'regression');
+  const failed = JSON.parse(await cli(['run', file, '--json'], 1));
+  assert.equal(failed.version, 1);
+  assert.equal(failed.failure.kind, 'unmet_outcome');
+  assert.ok(failed.failedProofIds.includes('task-created'));
+  assert.ok(failed.artifacts.length > 0);
+  writeFileSync(state, 'B');
+  const fixed = JSON.parse(await cli(['run', file, '--json']));
+  assert.equal(fixed.status, 'certified');
+  const suite = JSON.parse(await cli(['suite', 'stories', '--id', 'add-item', '--json']));
+  assert.deepEqual(suite.summary, { total: 1, certified: 1, failed: 0 });
   const savedState = JSON.parse(readFileSync('.schwifly/auth/demo.json', 'utf8'));
   savedState.cookies[0].value = 'expired';
   writeFileSync('.schwifly/auth/demo.json', JSON.stringify(savedState));
