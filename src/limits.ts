@@ -10,7 +10,7 @@ export function discoverySteps(value = MAX_DISCOVERY_STEPS): number {
 }
 
 export async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted();
+  if (signal.aborted) { void work.catch(() => {}); signal.throwIfAborted(); }
   let abort: () => void = () => {};
   const cancelled = new Promise<never>((_, reject) => {
     abort = () => reject(signal.reason);

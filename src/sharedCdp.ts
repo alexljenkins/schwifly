@@ -2,20 +2,15 @@ import { readFileSync } from 'node:fs';
 import { registerSecrets } from './secrets.js';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
-import { sessionModel } from './llm.js';
+import { sessionModel, type ProviderError } from './llm.js';
 import { bounded, CancelledError, SESSION_TIMEOUT_MS } from './limits.js';
 
-// Shared-CDP substrate: Stagehand OWNS Chromium, Playwright ATTACHES over CDP, so
-// Stagehand observe()/act() and step()'s Playwright locators drive the SAME DOM.
-// Without this, the AI backup heals against a different browser than the workflow runs in
-// (silent wrong-DOM heals). Every live-AI epic builds on this.
-//
-// Shape avoids Stagehand bug #1392 ("Failed to resolve V3 Page"): Stagehand launches the
-// browser, we connectOverCDP to it, and use its existing page as the test page. ALWAYS pass
-// { page } to observe/act so they target this exact page.
+// Stagehand owns Chromium. Playwright attaches over CDP so model calls and locators share a page.
+// Pass that page explicitly to Stagehand observe, act, and agent execution.
 
 export interface SharedSession {
   signal: AbortSignal;
+  readonly providerFailure?: ProviderError;
   stagehand: Stagehand;
   browser: Browser;
   page: Page;
@@ -23,9 +18,7 @@ export interface SharedSession {
   close(): Promise<void>;
 }
 
-// Default model is Gemini (free-tier friendly); swap via SCHWIFLY_MODEL. LOCAL only — never
-// BROWSERBASE (that is paid cloud and a locked constraint). Stagehand resolves the API key
-// from the environment (GEMINI_API_KEY / GOOGLE_API_KEY / ...), so callers don't wire it.
+// Browser execution stays local. src/llm.ts owns the OpenRouter configuration.
 export interface SharedSessionOptions {
   /**
    * Discovery sessions only. Stagehand's agent evidence callbacks are experimental and refuse to
@@ -41,7 +34,8 @@ export interface SharedSessionOptions {
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
   const controller = new AbortController();
-  const model = sessionModel(controller.signal);
+  let providerFailure: ProviderError | undefined;
+  const model = sessionModel(controller.signal, error => { providerFailure = error; });
   // Reuse the Chromium Playwright already installed (no extra Chrome download / system Chrome
   // dependency). Without executablePath, Stagehand's chrome-launcher errors "CHROME_PATH must
   // be set". --no-sandbox is required to launch Chromium inside sandboxed CI/Linux (otherwise
@@ -101,5 +95,5 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
 
   page.setDefaultTimeout(5000);
   page.setDefaultNavigationTimeout(30_000);
-  return { signal: controller.signal, stagehand, browser, page, close };
+  return { signal: controller.signal, get providerFailure() { return providerFailure; }, stagehand, browser, page, close };
 }

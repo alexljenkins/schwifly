@@ -20,6 +20,7 @@ export interface StoryReport {
   failure: { kind: FailureKind; reason: string } | null;
   artifacts: string[];
   route?: string;
+  recovery?: 'element' | 'route';
 }
 export interface OperationState {
   phase: Phase;
@@ -63,7 +64,8 @@ export async function reportOperation(
     version: 1, storyId: state.loaded?.story.id ?? null, inputFile: relative(root, resolve(root, options.file)),
     phase: state.phase, status: result.ok ? 'certified' : 'failed', observedActions: actions,
     failedProofIds, failure: result.ok ? null : { kind: failureKind, reason: result.reason ?? 'story failed' },
-    artifacts: [...state.artifacts, ...(certification?.artifacts ?? [])].map(file => relative(root, resolve(root, file))),
+    artifacts: [...new Set([...state.artifacts, ...(certification?.artifacts ?? [])].map(file => relative(root, resolve(root, file))))],
+    ...(result.recovery ? { recovery: result.recovery } : {}),
     ...(result.saved ? { route: result.saved } : {}),
   });
   const dir = resolve(root, '.schwifly', 'results');

@@ -51,7 +51,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
   Add suite selection and aggregate results so another repo can run its stories without a custom script per story.
   Done when an external caller can identify a failed proof, fix the app, rerun, and receive a certified workflow.
 
-- [ ] **Complete automatic recovery and prove the package.** For story-backed runs, reuse the established route first.
+- [x] **Complete automatic recovery and prove the package.** For story-backed runs, reuse the established route first.
   Try element repair, then bounded route rebuilding when repair cannot complete the story. Reuse `rebuildStory()`.
   Require fresh replay with healing disabled before saving either kind of repair. Preserve the prior route when certification fails.
   Publish useful evidence on failure and exit non-zero. Keep app implementation and repeated development cycles in the caller.

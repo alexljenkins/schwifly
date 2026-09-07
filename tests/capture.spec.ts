@@ -23,19 +23,19 @@ test('actions without a concrete selector or a supported method are dropped', ()
     action({ method: 'screenshot' }),
     action({ method: 'scroll' }),
     action({ description: '' }),
-    action({ method: 'fill', description: 'Email', args: ['a@b.com'] }),
+    action({ method: 'fill', description: 'Title', args: ['Buy milk'] }),
   ]);
   expect(steps.map((s) => s.action)).toEqual(['fill']);
-  expect(steps[0].value).toBe('a@b.com');
+  expect(steps[0].value).toBe('Buy milk');
 });
 
 test('a re-typed field is superseded by the last fill on that element', () => {
   const steps = normalizeActions([
-    action({ method: 'fill', selector: 'xpath=//input[1]', description: 'Email', args: ['typo@'] }),
+    action({ method: 'fill', selector: 'xpath=//input[1]', description: 'Title', args: ['By milk'] }),
     action({ method: 'fill', selector: 'xpath=//input[2]', description: 'Name', args: ['Ada'] }),
-    action({ method: 'fill', selector: 'xpath=//input[1]', description: 'Email', args: ['ada@example.com'] }),
+    action({ method: 'fill', selector: 'xpath=//input[1]', description: 'Title', args: ['Buy milk'] }),
   ]);
-  expect(steps.map((s) => s.value)).toEqual(['Ada', 'ada@example.com']);
+  expect(steps.map((s) => s.value)).toEqual(['Ada', 'Buy milk']);
 });
 
 test('a repeated identical click collapses to one step', () => {
@@ -62,12 +62,13 @@ test('typed values pass through redact() before they can reach generated source'
   }
 });
 
-test('a password field is redacted even when its value is not configured in the environment', () => {
+for (const label of ['Password', 'Email'])
+test(`a ${label} field is redacted even when its value is not configured in the environment`, () => {
   const saved = process.env.APP_PASSWORD;
   delete process.env.APP_PASSWORD;
   try {
     const steps = normalizeActions([
-      action({ method: 'fill', description: 'Password field', args: ['unconfigured-hunter2'] }),
+      action({ method: 'fill', description: `${label} field`, args: ['unconfigured-private-value'] }),
     ]);
     expect(steps[0].value).toBe('***REDACTED***');
   } finally {

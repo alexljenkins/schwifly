@@ -1,407 +1,100 @@
 # Schwifly
 
-Schwifly turns a user story into a Playwright test that runs deterministically and fixes itself
-when the page changes under it.
-
-Most self-healing test tools put the AI on the happy path: an agent drives the browser every run,
-so every run is non-deterministic and costs a token. Schwifly inverts that. A **workflow** is a
-real `.spec.ts` file with plain-string locators (`#signin`, `role=button[name="Add"]`) that
-Playwright runs directly, at Playwright speed, with no model in the loop. The AI only wakes up
-when a locator stops matching. It re-finds the element, the run keeps going, and the fix gets
-written back into the spec as a one-line diff. If it can't find a replacement, the test fails for
-real instead of quietly passing on a guess.
-
-It's black-box: point it at any URL you can reach in a browser. No backend access, no
-instrumentation, no SDK to install in the app under test.
-
-## How it works
-
-```
-Story (plain English)  ──►  Workflow (.spec.ts, deterministic)
-                                   │
-                            Runner (PRIMARY) ── Playwright, parallel, login via storageState
-                                   │ step's locator fails?
-                            Resolver (BACKUP) ── re-find the element by intent
-                                   │
-                  ┌────────────────┼─────────────────┐
-              heals + re-runs   can't heal but     genuinely
-              → writes the fix  task possible      impossible
-                back to the     → flag             → REAL FAIL
-                .spec.ts
-```
-
-Every step in a workflow looks like this:
-
-```ts
-await step(page, { intent: 'click the Sign in button', locator: '#signin', action: 'click' },
-           { resolver: heal, file: here });
-```
-
-`step()` tries `locator` first. On failure it calls `resolver.resolve(page, spec)`, which searches
-the live DOM for something matching `intent` instead. If that succeeds, the healed selector
-replaces the original string in this exact file. "Updating the workflow" becomes a git diff on one
-line, not a rewrite.
-
-### Two-tier heal, one seam
-
-<details>
-<summary><strong>How the resolver actually finds a replacement element</strong></summary>
-
-Both tiers implement the same `Resolver` interface, so `step()` never knows which one answered.
-
-**Tier 1, `PlaywrightHeuristicResolver`.** No LLM, no key, no network call. It strips the intent
-down to a salient label (`"click the Sign in button"` → `"Sign in"`) and probes the DOM with a
-fixed ladder of accessible-name selectors: inferred ARIA role first, then generic button/link,
-`aria-label`, `placeholder`, visible text, returning the first one that matches and is visible.
-This is the same trick Playwright's own Healer uses to recover the majority of selector breakage.
-Ids and classes churn on every deploy; accessible names don't.
-
-**Tier 2, `StagehandResolver`.** LLM escalation for what the heuristic can't find: a toggle with
-no accessible name, a label that changed along with the id. Wraps Stagehand's `observe(intent,
-{page})`. `SCHWIFLY_MODEL` selects an OpenRouter model ID. **Live-proven** on `gemini-2.5-flash`, which healed a `#dark-mode-toggle-OLD` locator
-with zero accessible name to `xpath=…/button[1]` after the heuristic gave up.
-
-**`EscalatingResolver`** is what workflows actually use: tier 1 first, tier 2 only when tier 1
-returns `null` *and* an LLM key is configured. A workflow with no key still gets the heuristic
-backup for free; the model never gets called on the happy path, so `pnpm run verify` stays green
-with zero API cost.
-
-```ts
-// src/heal.ts
-export class EscalatingResolver implements Resolver {
-  async resolve(page, spec) {
-    const cheap = await this.heuristic.resolve(page, spec);
-    if (cheap) return cheap;
-    const llm = makeStagehandResolver(this.stagehand); // undefined with no key configured
-    return llm ? llm.resolve(page, spec) : null;
-  }
-}
-```
-
-</details>
-
-### Verdicts, not just pass/fail
-
-`schwifly run` joins Playwright's JSON report with the heal and step logs and prints one line per
-workflow, then sets the process exit code so CI can trust it without reading the log:
-
-| Verdict | Meaning | Exit |
-|---|---|---|
-| **pass** | ran deterministically, no heal needed | 0 |
-| **healed** | a locator broke, the resolver fixed it, the fix was written back | 0 |
-| **fail** | the step genuinely failed | 1 |
-| **impossible** | the resolver looked and came back empty (`resolver returned null`) | 1 |
-
-This is real output, from deliberately breaking a locator in the shipped example workflow and
-re-running it:
-
-```
-STATE       WORKFLOW
-----------  ------------------------------------
-PASS        workflows/the-internet.auth.setup.ts
-HEALED      workflows/example.spec.ts
-            - #this-id-no-longer-exists
-            + role=link[name="Docs"i]
-
-1 pass  1 healed  0 fail  0 impossible
-```
-
-An empty run, a Playwright process crash, or stale report data can never turn the exit code green:
-`schwifly run` clears its logs before every run specifically so a prior success can't leak through.
-
-## Quick start
-
-Requires Node 22+ and pnpm (the `packageManager` field pins the version; `pnpm-lock.yaml` is the
-only lockfile). Stagehand and Playwright are pinned to exact versions the AI evidence callbacks
-were verified against, so don't bump them casually.
-
-```bash
-pnpm install
-pnpm exec playwright install chromium
-
-pnpm run verify          # the hero loop in a real browser, no LLM key needed, live tests skip
-pnpm run schwifly run    # run workflows/, print verdicts, write back any successful heals
-pnpm run typecheck
-```
-
-`pnpm run verify` is the fastest way to see the engine work: it drives real Chromium against a
-free public site, breaks a locator, and asserts the heuristic resolver heals it, all with no API
-key. Nothing in this repo requires a paid service; the only optional cost is your own LLM key for
-tier-2 heals through OpenRouter.
-
-## Building a workflow
-
-A workflow is always the same shape underneath: a `.spec.ts` full of `step()` calls. There are
-three ways to produce one without hand-writing every locator.
-
-<details>
-<summary><strong>schwifly record: do the flow once, save what you did</strong></summary>
-
-```bash
-pnpm run schwifly record https://example.com -- --out workflows/example-recording.spec.ts
-```
-
-Opens Playwright codegen's own browser. Click through the flow like a user, close the browser, and
-Schwifly converts the recorded clicks, fills, and visible/text assertions into the same
-`step()`-based template used everywhere else, so a later heal is still a one-line write-back, not
-a re-record.
-
-No key required. Locators derived from role, label, text, placeholder, title, or alt text get a
-human-readable intent for free (`"click the Add Element"`); an opaque CSS or test-id selector keeps
-a generic intent unless a key is already configured, in which case one optional labeling call
-improves just those. Popup and new-tab sequences that Playwright codegen produces, including
-switching back to the original tab, are preserved on the same plain-string locator contract.
-Unsupported codegen actions fail the conversion outright rather than silently vanishing from the
-saved spec.
-
-</details>
-
-<details>
-<summary><strong>schwifly gen: turn a written story into a workflow</strong></summary>
-
-```bash
-# the `--` is required so pnpm forwards --url to the CLI, not to itself
-OPENROUTER_API_KEY=… pnpm run schwifly gen \
-  "Open pricing and check the Pro plan costs 19" -- --url https://example.com
-```
-
-The story is a sentence per step, each starting with a verb Schwifly recognizes (`click`, `fill`,
-`open`, `see`, …), plus an inline `<validate>19</validate>` for anything that should be asserted.
-Parsing that story into steps is pure and key-free (`parseStory()` has no browser or LLM
-dependency, so writing stories is free to iterate on). Turning each step into a real locator needs
-one live pass over the page, and that part is key-gated: Schwifly opens the URL once, calls
-Stagehand's `observe()` per intent to find the element, then rewrites whatever selector comes back
-into a stable `role=`/`text=`/`[aria-label]` string rather than keeping a brittle raw xpath. No key,
-no network call: `gen` refuses up front with a clear message instead of guessing.
-
-A story that's purely descriptive (no leading verbs, no `<validate>`) legitimately produces zero
-steps: that's a story that describes state rather than action, not a bug.
-
-</details>
-
-<details>
-<summary><strong>schwifly attempt: hand it a ticket, get back a verified workflow</strong></summary>
-
-```bash
-OPENROUTER_API_KEY=… pnpm run schwifly attempt \
-  "Add an element to the list. <expect>Delete</expect>" -- \
-  --url https://the-internet.herokuapp.com/add_remove_elements/ \
-  --out workflows/add-element.spec.ts
-```
-
-This is the loosest input Schwifly accepts: an arbitrary ticket, not a structured story. A
-bounded, same-origin browser agent (cross-origin navigation is blocked at the browser context, not
-by asking nicely) attempts the task and its **observed, successful** actions become the candidate
-workflow. The agent's own narration and self-reported success are never trusted as evidence.
-
-Success is judged by an outcome contract resolved from the ticket up front: the `<expect>`/
-`<validate>` tag, or a proposed one inferred from the start page if you didn't write one. That
-contract becomes a real page assertion baked into the generated spec as a comment, so a human
-reviewing the diff can see exactly what "success" means. The candidate then replays in a **fresh
-browser session with the agent and the heal tier both disabled** (`SCHWIFLY_NO_HEAL=1`), and the
-workflow is saved to disk only if every step of that replay is `ok`. An agent that claims success
-while the contract doesn't hold exits non-zero and leaves nothing behind. A failed candidate stays
-at a unique gitignored `candidates/candidate.<pid>.<id>.spec.ts` path as debug evidence instead of
-overwriting anything in `workflows/`.
-
-`--visible` runs the discovery attempt headed, so you can watch the agent work, and produces
-byte-identical output to the headless run.
-
-</details>
-
-## User-outcome contracts
-
-A user-outcome contract keeps 4 artifacts separate. The product author owns the long-lived
-`ideal`, one concrete `story`, and deterministic `proofs`. Schwifly owns the generated `route`,
-which can change when the interface changes. AI discovers route actions, but it never creates or
-grades proof results.
-
-Create a strict `.story.yaml` file:
-
-```yaml
-version: 1
-id: add-item
-ideal: user-work-is-never-lost
-title: Add an item and continue working
-start:
-  url: http://127.0.0.1:4173/app
-story:
-  as: a signed-in user
-  want: to add "Buy milk" to my list
-  so: I can continue planning
-route: workflows/add-item.spec.ts
-proofs:
-  must:
-    - id: item-exists
-      use: task.itemExists
-      with: { title: Buy milk }
-  mustNot:
-    - id: no-console-error
-      use: browser.consoleError
-      with: {}
-```
-
-Add product-specific proof adapters in the repository-root `schwifly.config.ts`:
-
-```ts
-import { defineConfig, defineProof } from './src/proofs';
-
-export default defineConfig({
-  proofs: {
-    'task.itemExists': defineProof<{ title: string }>({
-      parse(input) {
-        if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('input must be an object');
-        const title = (input as Record<string, unknown>).title;
-        if (typeof title !== 'string') throw new Error('title must be a string');
-        return { title };
-      },
-      describe: ({ title }) => `the task list contains ${title}`,
-      async arm({ page }, { title }) {
-        return { async check() {
-          const matched = await page.getByRole('listitem', { name: title }).isVisible();
-          return { matched, message: `task ${title} is visible` };
-        } };
-      },
-    }),
-  },
-});
-```
-
-Then discover or rebuild the generated route:
-
-```bash
-OPENROUTER_API_KEY=… pnpm run schwifly attempt stories/add-item.story.yaml
-OPENROUTER_API_KEY=… pnpm run schwifly rebuild stories/add-item.story.yaml
-```
-
-`attempt` refuses an existing route. `rebuild` first runs the current route without healing. It
-replaces a broken route only after discovery proofs and a fresh agent-free replay pass. Both
-commands leave the story and config unchanged. The older ticket form of `attempt`, plus `gen`,
-`record`, and `run`, remain compatible.
-
-## Login-gated apps
-
-Most real apps hide everything behind a login. Schwifly captures a session once and reuses it, the
-Playwright-native way (no backend, no special access):
-
-- A `setup` project runs `workflows/<app>.auth.setup.ts`, which logs in **via `step()`** (so the
-  login itself self-heals like any other step) and writes `storageState` to
-  `.schwifly/auth/<app>.json`.
-- The `workflows` project depends on `setup` and loads that state. The session is reused across
-  runs and re-captured automatically once it's stale (over 24h by file mtime).
-- `tests/` is its own Playwright project with no `storageState` and no `setup` dependency, so
-  `pnpm run verify` stays key-free and green with no credentials at all.
-
-<details>
-<summary><strong>Credentials, storageState, and what gets redacted</strong></summary>
-
-Credentials come from the environment: copy `.env.example` to `.env` (gitignored) and run with
-`node --env-file=.env`, or let `schwifly` auto-load `.env` itself. A captured `storageState` JSON
-**is a credential**. It lives under `.schwifly/` (gitignored), is never committed, and every
-`storageState*` file is also ignored as defense in depth. `redact()` scrubs secret-keyed fields,
-and configured secret values even without a matching key label, before any heal or step record
-persists or any verdict prints, so a password never lands in an ndjson log or a terminal diff.
-
-Schwifly uses one shared login account by design. Per-worker multi-account isolation is a
-deliberate non-goal for v1: the single shared session is also what keeps the Stagehand AI backup
-logged in without juggling multiple identities. Generated (`gen`) and attempted (`attempt`)
-workflows currently open their own Stagehand-owned browser context and don't yet inherit this
-`storageState`. Authenticated generation is a known, deliberate gap, not an oversight (see
-Current boundaries below).
-
-</details>
-
-## Stack
-
-TypeScript · [Playwright](https://playwright.dev) (Apache-2.0), the runner and the browser ·
-[Stagehand](https://stagehand.dev) (MIT, runs locally), the LLM-driving layer behind the tier-2
-resolver and the `attempt` agent. Both are pinned to exact versions; Stagehand's agent evidence
-callbacks are experimental and their shapes are version-sensitive.
-
-## Current boundaries
-
-This is a v1 hero loop, not a mature platform. Worth knowing before you lean on it:
-
-- OpenRouter discovery and forced repair pass with `google/gemini-3.5-flash-lite`.
-  Fresh replay makes zero model calls. See [the checks](docs/testing-suite-progress.md).
-- **Generated and attempted workflows don't inherit auth.** They run in their own Stagehand-owned
-  browser context rather than the `workflows` project's `storageState`, so `gen`/`attempt` against
-  a page that requires login doesn't work today. No consumer has needed it yet, so the
-  `storageState` bridge into that shared session hasn't been built.
-- **No CI loop yet.** Nothing currently re-runs workflows on a schedule or on push to catch drift
-  and auto-heal it; every run today is invoked by hand.
-- **One shared login account, not per-worker isolation.** A deliberate v1 scope cut, not a bug (see
-  Login-gated apps above).
-
-The full roadmap, including what's shipped, what's typechecked-but-unproven, and what's explicitly
-deferred, lives in [TODO.md](./TODO.md).
-
-## License
-
-Licensed under the [PolyForm Small Business License 1.0.0](./LICENSE.md): free to use for small
-businesses (fewer than 100 people and under $1M/yr revenue); other use requires a separate license.
-
-> Required Notice: Copyright Alex Jenkins 2026
-
----
-
-Copyright Alex Jenkins 2026
-
-Browser verification defaults to 1 worker. Child Playwright runners also force 1 worker.
-Run `pnpm run typecheck` separately, then `pnpm run verify --workers=1`.
-Discovery accepts at most 12 steps. Each shared browser session closes after 120 seconds.
-Child runners stop after 180 seconds and terminate their process group on cancellation.
-
-## Install the package
-
-Use Node 22.6 or newer and pnpm. From the Schwifly checkout:
+Schwifly turns authored stories into repeatable browser workflows. The author owns the story and its proof checks.
+Schwifly discovers a route, then saves it only after a fresh replay passes those checks with healing disabled.
+Established routes make no model calls. Recovery can replace a route, but keeps the story and proofs unchanged.
+The caller owns app changes and decides when to retry after an outcome regression.
+
+## Install
+
+Use Node 22.6 or newer and the pnpm version selected by your repository.
+Build an archive from this checkout:
 
 ```bash
 pnpm pack --pack-destination artifacts
 ```
 
-From a consumer repository:
+Install it in a consumer repository:
 
 ```bash
 pnpm add -D /path/to/schwifly/artifacts/schwifly-0.1.0.tgz
+pnpm exec schwifly install-browser
 pnpm exec schwifly init
 node server.mjs
 ```
 
-`init` creates a small task app, a story, and a product proof. It refuses to overwrite these files.
-The product proof checks that the app creates exactly 1 new task. It cannot pass from an old task alone.
-The example story uses port 4173. Run commands in another terminal:
+`init` creates a task app, a story, a product proof, and a login example. It refuses to overwrite those files.
+The app uses port 4173. Put `OPENROUTER_API_KEY` in the consumer's ignored `.env` file, then use another terminal:
 
 ```bash
 pnpm exec schwifly attempt stories/add-item.story.yaml
-pnpm exec schwifly run workflows/add-item.spec.ts
+pnpm exec schwifly run stories/add-item.story.yaml
 ```
 
-Set `OPENROUTER_API_KEY` in the consumer's ignored `.env` file for discovery and model repair.
-`SCHWIFLY_MODEL` defaults to `google/gemini-3.5-flash-lite`.
-All commands accept `--root <consumer-directory>`. Stories, configuration, workflows, and evidence resolve there.
-Generated workflows import `schwifly/*`. They do not require this checkout's source files.
-The package supplies its own serial Playwright configuration when the consumer has none.
+All commands accept `--root <consumer-directory>`. Stories, config, routes, and evidence resolve against that root.
+Generated workflows import `schwifly/*`. Consumers do not need this checkout's source.
+The package supplies a serial Playwright configuration when the consumer has none.
 
-Import an existing Playwright recording without opening the recorder:
+## Author a story
 
-```bash
-pnpm exec schwifly record http://localhost:4173/app --from recording.ts
+```yaml
+version: 1
+id: add-item
+ideal: work-is-saved
+title: Add an item
+start:
+  url: http://127.0.0.1:4173/app
+story:
+  as: a user
+  want: to add a task named Buy milk
+  so: I can plan my work
+route: workflows/add-item.spec.ts
+proofs:
+  must:
+    - id: task-created
+      use: tasks.created
+      with: { title: Buy milk }
+  mustNot:
+    - id: no-browser-error
+      use: browser.consoleError
+      with: {}
 ```
 
-Check the packed archive in a separate consumer directory:
+The schema rejects unknown fields, malformed clauses, and routes outside the consumer root.
+`must` requires a matching proof. `mustNot` requires a non-matching proof.
+Every clause must produce exactly 1 passing result before certification succeeds.
+Agent narration never counts as proof.
 
-```bash
-pnpm run verify:package
-```
+Define product proofs with `defineConfig()` and `defineProof()` from `schwifly` in `schwifly.config.ts`.
+Each adapter validates its input, describes the required outcome, and provides an executable check.
+`arm()` runs before the route and can capture a baseline or attach listeners.
+`check()` returns `{ matched, message, evidence? }`. Optional `dispose()` removes listeners afterward.
 
-## Repeatable login sessions
+The [task example](examples/task-app/schwifly.config.ts) checks that the app creates exactly 1 new task.
+It cannot pass because an old task already exists.
+
+| Built-in proof | Input |
+| --- | --- |
+| `page.url` | `{ exact: URL }` or `{ contains: text }` |
+| `ui.elementVisible` | `{ role, name? }`, `{ testId }`, or `{ css }` |
+| `ui.elementEnabled` | The same locator inputs |
+| `browser.consoleError` | `{}` |
+| `browser.pageError` | `{}` |
+
+## Reset data and capture login
 
 Story runs require an app-owned `setup()` function in `schwifly.config.ts`.
-The function resets test data before discovery, repair, and each fresh replay.
-Use an explicit no-op only for stories whose app needs no reset.
+It runs before discovery, repair, and every fresh replay. Use an explicit no-op for apps that require no reset.
+Schwifly opens a fresh browser session each time and reloads the start page after setup.
 
-The generated task example already resets its list. To test login, put these values in its `.env`:
+For authenticated apps, configure `session.storageState` and `session.check()`.
+The state path is relative to the consumer root. `check()` returns whether that session is authenticated.
+Missing state and expired login fail before discovery. Login credentials belong in the app's capture script, not generated routes.
+Keep saved state under the ignored `.schwifly/auth/` directory.
+Schwifly restores cookies, localStorage, and IndexedDB through the shared browser connection.
+The initial scope uses 1 identity and serial execution.
+
+To exercise the task example's login, put these values in its `.env`:
 
 ```dotenv
 SCHWIFLY_DEMO_AUTH=1
@@ -414,31 +107,105 @@ Restart the example server, then capture login:
 node login.mjs
 ```
 
-For your own app, configure `session.storageState` and `session.check()`.
-`storageState` names a Playwright state file relative to the consumer root.
-`check()` returns whether the loaded session is authenticated. Expired sessions fail before discovery.
-Keep the state file under the ignored `.schwifly/auth/` directory.
-Schwifly restores cookies, localStorage, and IndexedDB into fresh sessions through the shared browser connection.
-The initial scope uses 1 identity and serial execution.
-
-## Results for builders
-
-Story commands write version 1 JSON under `.schwifly/results/` beside their human output.
-Use `--json` on story commands for JSON on stdout:
+## Run and recover
 
 ```bash
+pnpm exec schwifly suite stories --json
+pnpm exec schwifly suite stories --id add-item,delete-item --json
 pnpm exec schwifly run stories/add-item.story.yaml --json
-pnpm exec schwifly suite stories --id add-item --json
+pnpm exec schwifly rebuild stories/add-item.story.yaml
 ```
 
-Suites run selected stories serially. Missing routes use discovery. Existing routes use replay.
-Omit `--id` to select all stories. Use comma-separated IDs to select several stories.
-The suite result contains each story result and aggregate counts.
+Suites select stories by ID and run them serially. Missing routes use discovery.
+`attempt` refuses an existing route. `rebuild` keeps a green route unchanged and certifies any replacement before saving it.
 
-Each story result includes `storyId`, `phase`, `observedActions`, `failedProofIds`, `failure`, and `artifacts`.
-Failures distinguish invalid contracts, incomplete exploration, unmet outcomes, route failures, provider failures, login, setup, and browser failures.
+Story-backed runs first replay the established route without healing.
+A broken route gets 1 element-repair attempt. The resolver tries accessible names before asking the model.
+If repair cannot certify the story, Schwifly attempts 1 route rebuild using the same story and proofs.
+Both repair paths require a fresh replay with healing disabled before write-back.
+Failed certification and concurrent route edits preserve the prior route.
+If route actions pass but a proof fails, Schwifly reports an outcome regression without changing the route.
+
+Generated story markers also send workflow-file and workflow-directory runs through story certification.
+Legacy workflows without a story retain their existing locator-repair behavior.
+To disable recovery for a run:
+
+```bash
+SCHWIFLY_NO_HEAL=1 pnpm exec schwifly suite stories
+```
+
+## Read builder results
+
+Story commands write version 1 JSON under `.schwifly/results/` beside the human report.
+`--json` writes the machine result to stdout. Diagnostics use stderr.
+The result includes `storyId`, `phase`, `observedActions`, `failedProofIds`, `failure`, and `artifacts`.
+Successful recovery also identifies `element` or `route` in the `recovery` field.
+Suite results contain each story report and aggregate counts. Failures exit non-zero.
+
+Failure kinds distinguish invalid contracts, incomplete exploration, unmet outcomes, route failures, proof errors, provider failures, login, setup, browser failures, and cancellation.
 A failed exploration does not prove that the app cannot meet the story.
-All failures exit non-zero. A caller can identify a failed proof, fix the app, and rerun the same story.
+A caller can identify a failed proof, fix the app, and rerun the same story.
 
-Failure screenshots mask form fields, known secret text, and elements marked `data-schwifly-private` or `data-private`.
-Artifact paths are relative to the consumer root. Session files stay under the ignored auth directory.
+Artifact paths are relative to the consumer root.
+Failure screenshots mask form fields, known secret text, and regions marked `data-schwifly-private` or `data-private`.
+Successful repairs save redacted diffs under `.schwifly/repair-diffs/`.
+The [consumer CI example](examples/ci/schwifly.yml) retains these results, screenshots, and diffs.
+
+## Models and limits
+
+`OPENROUTER_API_KEY` enables model calls. `SCHWIFLY_MODEL` selects an OpenRouter model ID.
+The tested default is `google/gemini-3.8-flash`.
+[Checkpoint evidence](docs/testing-suite-progress.md) records the live model checks and installed dependency versions.
+Discovery, generation, optional recording labels, and model repair share the configuration in `src/llm.ts`.
+Missing credentials leave deterministic replay and heuristic repair usable.
+Authentication, budget, and rate-limit failures return explicit provider errors without automatic retries.
+
+| Limit | Value |
+| --- | --- |
+| Default verification workers | 1 |
+| Child runner workers | Always 1 |
+| Discovery steps | At most 12 |
+| Shared browser session | 120 seconds |
+| Model request | 30 seconds |
+| Model calls per session | At most 36 |
+| Child runner | 180 seconds |
+| Recovery per story run | 1 element repair, then at most 1 rebuild |
+
+Run browser checks serially. Child runners enforce their own worker limit and terminate their process groups after cancellation.
+Shared sessions close after errors, deadlines, SIGINT, and SIGTERM.
+
+## Other authoring commands
+
+```bash
+pnpm exec schwifly record http://localhost:4173/app
+pnpm exec schwifly record http://localhost:4173/app --from recording.ts
+pnpm exec schwifly gen 'Click Pricing. <validate>19</validate>' --url https://example.com
+pnpm exec schwifly attempt 'Click Show receipt. <expect>Order confirmed</expect>' --url https://example.com
+```
+
+The recorder converts Playwright actions into the same deterministic workflow format.
+`--from` imports an existing recording without opening the recorder.
+Generation, attempts, and recordings refuse to overwrite existing outputs.
+The older ticket form uses explicit visible-text outcome checks. Story files support product-specific proof functions.
+
+## Develop
+
+```bash
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run typecheck
+pnpm run verify --workers=1
+pnpm run verify:package
+```
+
+Run those commands separately. Normal verification stays key-free.
+The package check installs an archive in a separate consumer app and exercises authenticated discovery, replay, both recovery paths, and an outcome regression.
+It uses scripted browser discovery by default. To run the same consumer with live OpenRouter calls:
+
+```bash
+SCHWIFLY_LIVE=1 SCHWIFLY_MODEL=google/gemini-3.8-flash node --env-file=.env scripts/check-package.mjs
+```
+
+Stagehand 3.7.1 and Playwright 1.61.1 are pinned because capture depends on experimental evidence callbacks.
+The architecture and earlier decisions are in [TODO.md](TODO.md) and [the contract design](SCHWIFLY-USER-OUTCOME-CONTRACTS.md).
+Autonomous spec decomposition, app coding, crawling, persona simulation, and scoring remain outside this package.

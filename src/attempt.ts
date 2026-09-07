@@ -6,7 +6,6 @@ import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
 import { emit, type EmitAssertion, type EmitStep } from './emit.js';
 import { stableSelector } from './generate.js';
-import { openSharedSession } from './sharedCdp.js';
 import { openConfiguredSession } from './session.js';
 import { redact } from './secrets.js';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
@@ -334,6 +333,8 @@ async function captureLive<T>(
         page: page as never,
         callbacks: { onEvidence } as never,
       }), session.signal);
+      if (session.providerFailure) throw session.providerFailure;
+      if (DEBUG) console.error(`[attempt:result] ${redact(String(result?.message ?? ''))}`);
       return redact(String(result?.message ?? ''));
     };
     return { actions, value: await run(page, execute) };

@@ -87,7 +87,7 @@ export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): 
   const timeout = opts.timeout ?? 5000;
   const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file, action: spec.action ?? 'click', ...(spec.value === undefined ? {} : { value: spec.value }) });
   if (result.status === 'failed') await captureFailure(page);
-  appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), result);
+  appendNdjson(opts.stepLog ?? workerLogPath(process.env.SCHWIFLY_STEP_LOG ?? STEP_LOG), result);
   return result;
 }
 
@@ -115,7 +115,7 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
     }
     try {
       await act(page.locator(healed), spec, timeout);
-      appendNdjson(opts.healLog ?? workerLogPath(HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
+      appendNdjson(opts.healLog ?? workerLogPath(process.env.SCHWIFLY_HEAL_LOG ?? HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
       return { intent: spec.intent, status: 'healed', usedLocator: healed, healedFrom: spec.locator };
     } catch (err2) {
       return { intent: spec.intent, status: 'failed', usedLocator: healed, error: redact(String(err2)) };

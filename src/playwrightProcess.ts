@@ -38,6 +38,7 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   };
   const stop = (userCancelled: boolean) => {
     cancelled ||= userCancelled;
+    if (userCancelled) process.exitCode = 1;
     interrupted = true;
     kill('SIGTERM');
     escalation ??= setTimeout(() => kill('SIGKILL'), 3000);
@@ -46,8 +47,8 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   const timer = setTimeout(() => stop(false), timeout);
   process.once('SIGINT', cancel);
   process.once('SIGTERM', cancel);
-  child.stdout?.on('data', (data) => { stdout += data; });
-  child.stderr?.on('data', (data) => { stderr += data; });
+  child.stdout?.on('data', (data) => { stdout = (stdout + data).slice(-2_000_000); });
+  child.stderr?.on('data', (data) => { stderr = (stderr + data).slice(-2_000_000); });
   child.once('error', (cause) => { error = cause; });
   try {
     const result = await new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve) => {

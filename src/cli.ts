@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { loadStory } from './story.js';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyHeal, type HealRecord, type StepResult } from './workflow.js';
 import {
@@ -30,6 +31,7 @@ import type { ProofRecord } from './proofs.js';
 const REPORT = '.schwifly/last-run.json';
 const USAGE =
   'usage (all commands accept --root <directory>):\n  schwifly init\n  schwifly run [path]\n' +
+  '  schwifly install-browser [--with-deps]\n' +
   '  schwifly suite [stories-directory] [--id <id,id>] [--json]\n' +
   '  schwifly gen "<story>" --url <start> [--out workflows/<name>.spec.ts]\n' +
   '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]\n' +
@@ -130,6 +132,24 @@ function insideWorkspace(file: string | undefined): file is string {
   }
 }
 
+function workflowFiles(path: string): string[] {
+  if (!existsSync(path)) return [];
+  if (statSync(path).isFile()) return path.endsWith('.spec.ts') ? [path] : [];
+  return readdirSync(path, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? workflowFiles(join(path, entry.name))
+      : entry.isFile() && entry.name.endsWith('.spec.ts') ? [join(path, entry.name)] : []).sort();
+}
+
+function storyForWorkflow(file: string): string | undefined {
+  const match = /^\/\/ Schwifly story: (.+)$/m.exec(readFileSync(file, 'utf8'));
+  if (!match) return undefined;
+  const story: unknown = JSON.parse(match[1]);
+  if (typeof story !== 'string' || !story.endsWith('.story.yaml')) throw new Error('invalid story marker in workflow');
+  const loaded = loadStory(story);
+  if (loaded.routeFile !== resolve(file)) throw new Error('workflow story marker does not match its authoritative route');
+  return loaded.file;
+}
+
 async function runWorkflows(args: string[]): Promise<number> {
   if (args[0]?.endsWith('.story.yaml')) {
     const input = parseCommand(args, [], ['json']);
@@ -143,6 +163,21 @@ async function runWorkflows(args: string[]): Promise<number> {
   const hasTarget = args[0] !== undefined && !args[0].startsWith('-');
   const target = hasTarget ? args[0] : 'workflows/';
   const playwrightArgs = hasTarget ? args.slice(1) : args;
+  const files = workflowFiles(resolve(target));
+  const backed = files.map(file => ({ file, story: storyForWorkflow(file) }));
+  if (backed.some(item => item.story)) {
+    if (playwrightArgs.some(arg => arg !== '--workers=1' && arg !== '--json')) {
+      throw new Error('story-backed runs accept --json and --workers=1; use suite for story selection');
+    }
+    if (files.length > 1 && playwrightArgs.includes('--json')) throw new Error('use schwifly suite --json for aggregate results');
+    let failed = false;
+    for (const item of backed) {
+      const code = await runWorkflows([item.story ?? item.file, ...playwrightArgs.filter(arg => arg !== '--workers=1')]);
+      failed ||= code !== 0;
+      if (process.exitCode === 1) break;
+    }
+    return failed ? 1 : 0;
+  }
 
   // No stale evidence may survive into this verdict.
   clearRunLogs(HEAL_LOG);
@@ -178,7 +213,7 @@ async function runWorkflows(args: string[]): Promise<number> {
     (runner.status === 0 || (runner.status !== null && hasReportedFailure)) &&
     !(report.errors?.length);
   const eligible = evidenceComplete ? successfulHeals(verdicts) : [];
-  const safe = eligible.filter((heal) => insideWorkspace(heal.file));
+  const safe = eligible.filter((heal) => insideWorkspace(heal.file) && !storyForWorkflow(heal.file));
   let updated = 0;
   for (const heal of safe) if (applyHeal(heal)) updated++;
   if (heals.length) {
@@ -314,16 +349,16 @@ async function record(argv: string[]): Promise<number> {
     const from = stringFlag(input, 'from');
     if (from) writeFileSync(capture, readFileSync(resolve(from), 'utf8'));
     else {
-    console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
-    const runner = await runPlaywright(
-      ['codegen', '--target', 'playwright-test', '-o', capture, url],
-      { stdio: 'inherit' },
-    );
-    if (runner.error) throw runner.error;
-    if (runner.status !== 0) {
-      console.error(`schwifly record: Playwright codegen exited ${runner.status ?? runner.signal}.`);
-      return 1;
-    }
+      console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
+      const runner = await runPlaywright(
+        ['codegen', '--target', 'playwright-test', '-o', capture, url],
+        { stdio: 'inherit' },
+      );
+      if (runner.error) throw runner.error;
+      if (runner.status !== 0) {
+        console.error(`schwifly record: Playwright codegen exited ${runner.status ?? runner.signal}.`);
+        return 1;
+      }
     }
     if (!existsSync(capture) || !readFileSync(capture, 'utf8').trim()) {
       console.error('schwifly record: no browser actions were recorded.');
@@ -370,6 +405,12 @@ async function main(): Promise<number> {
   if (existsSync('.env')) process.loadEnvFile('.env');
 
   const cmd = args[0];
+  if (cmd === 'install-browser') {
+    const input = parseCommand(args.slice(1), [], ['with-deps']);
+    if (input.positionals.length) throw new Error('install-browser accepts only --with-deps');
+    const result = await runPlaywright(['install', 'chromium', ...(input.flags['with-deps'] ? ['--with-deps'] : [])], { stdio: 'inherit' });
+    return result.status === 0 ? 0 : 1;
+  }
   if (cmd === 'init') {
     const { initialize } = await import('./init.js');
     initialize(parseCommand(args.slice(1), []).positionals);

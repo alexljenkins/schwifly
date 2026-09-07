@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 import { llmConfigFromEnv, DEFAULT_MODEL } from '../src/llm';
 import { openSharedSession } from '../src/sharedCdp';
 
+for (const mode of ['observe', 'agent'] as const)
 for (const [status, message] of [[401, 'authentication'], [402, 'budget'], [429, 'rate limit']] as const) {
-  test(`OpenRouter HTTP ${status} fails once without retry or credential leakage`, async () => {
+  test(`OpenRouter ${mode} HTTP ${status} fails once without retry or credential leakage`, async () => {
     const oldKey = process.env.OPENROUTER_API_KEY;
     const oldModel = process.env.SCHWIFLY_MODEL;
     process.env.OPENROUTER_API_KEY = 'test-private-key';
@@ -25,7 +26,14 @@ for (const [status, message] of [[401, 'authentication'], [402, 'budget'], [429,
     try {
       session = await openSharedSession();
       await session.page.setContent('<button>Continue</button>');
-      await expect(session.stagehand.observe('click Continue', { page: session.page })).rejects.toThrow(message);
+      if (mode === 'observe') {
+        await expect(session.stagehand.observe('click Continue', { page: session.page })).rejects.toThrow(message);
+      } else {
+        // Stagehand can return an unsuccessful result instead of throwing the provider error.
+        await session.stagehand.agent({ mode: 'dom' }).execute({ instruction: 'click Continue', maxSteps: 1, page: session.page as never }).catch(() => {});
+      }
+      expect(session.providerFailure?.message).toContain(message);
+      expect(session.providerFailure?.message).not.toContain('test-private-key');
       expect(requests).toBe(1);
     } finally {
       await session?.close();

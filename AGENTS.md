@@ -15,19 +15,20 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   "did this spec pass" must read the step log (`src/runLogs.ts`), as `replayGreen()` does. CLI
   write-back is limited to heals from a fully successful `healed` verdict; runner failures and
   empty evidence always exit non-zero.
-- Generated files currently import `../src/*`, so CLI output must remain a direct
-  `workflows/<name>.spec.ts` child. Generation, attempts, and recordings never overwrite an
-  existing workflow; failed attempt evidence uses an isolated gitignored candidate file.
+- Generated files import `schwifly/*`. Run `pnpm run build` before executing generated routes
+  in this checkout. The package check installs an archive in a separate consumer directory.
+  Initial generation preserves existing workflows. Repairs replace them only after fresh certification.
 - `pnpm run verify` must stay key-free: live paths belong behind injectable seams with fake
   fixtures, not behind an API key.
 - Run browser verification with `pnpm run verify --workers=1`, separately from type checking or
   other browser work. Check nested runners too. Parallel verification preceded a PC crash.
-- Story routes load their authoritative `.story.yaml` file and the repository-root
-  `schwifly.config.ts` on every run. Certification requires green step logs and exactly one green
-  record per proof clause; proof records live in isolated `.schwifly/proofs*.ndjson` files.
+- Story runs reload the authoritative story and consumer config. Each session runs the app's
+  required setup/reset hook. Certification requires green steps and exactly one green proof per clause.
+  `runStory()` owns bounded repair and rebuild. Its isolated evidence includes versioned JSON results.
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).
-- For package delivery, OpenRouter, or automatic story recovery, follow
-  [the implementation handoff](./docs/testing-suite-handoff.md).
+- For package delivery, OpenRouter, sessions, or recovery, read
+  [the checkpoint evidence](./docs/testing-suite-progress.md) and [the handoff](./docs/testing-suite-handoff.md).
+  The live package check requires explicit `SCHWIFLY_LIVE=1`. Normal verification stays key-free.
 
 ## Maintaining this file
 

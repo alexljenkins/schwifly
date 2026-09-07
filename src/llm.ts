@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MODEL_TIMEOUT_MS, bounded } from './limits.js';
 
-export const DEFAULT_MODEL = 'google/gemini-3.5-flash-lite';
+export const DEFAULT_MODEL = 'google/gemini-3.8-flash';
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1';
 export interface LlmConfig { model: ModelConfiguration }
 type ModelObject = Exclude<ModelConfiguration, string>;
@@ -23,7 +23,7 @@ function providerError(error: unknown): ProviderError {
 }
 
 /** One model configuration covers observe, extract, and the DOM agent. No automatic retries. */
-export function sessionModel(signal?: AbortSignal): ModelObject {
+export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderError) => void): ModelObject {
   const modelId = process.env.SCHWIFLY_MODEL ?? DEFAULT_MODEL;
   const apiKey = process.env.OPENROUTER_API_KEY;
   let calls = 0;
@@ -37,15 +37,20 @@ export function sessionModel(signal?: AbortSignal): ModelObject {
       ]),
     }),
     wrapGenerate: async ({ doGenerate, params }) => {
-      if (!apiKey || process.env.SCHWIFLY_NO_HEAL === '1') throw new ProviderError('model calls are disabled');
-      if (++calls > 36) throw new ProviderError('model call limit reached');
+      const fail = (message: string): never => { const error = new ProviderError(message); onError?.(error); throw error; };
+      if (!apiKey || process.env.SCHWIFLY_NO_HEAL === '1') fail('model calls are disabled');
+      if (++calls > 36) fail('model call limit reached');
       const log = process.env.SCHWIFLY_MODEL_LOG;
       if (log) {
         mkdirSync(dirname(log), { recursive: true });
         appendFileSync(log, JSON.stringify({ model: modelId, call: calls }) + '\n');
       }
       try { return await bounded(Promise.resolve(doGenerate()), params.abortSignal!); }
-      catch (error) { throw providerError(error); }
+      catch (error) {
+        const failure = providerError(error);
+        onError?.(failure);
+        throw failure;
+      }
     },
   };
   return {

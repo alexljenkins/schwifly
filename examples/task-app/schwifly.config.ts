@@ -1,3 +1,4 @@
+import { expect } from 'schwifly/test';
 import { defineConfig, defineProof } from 'schwifly';
 
 export default defineConfig({
@@ -23,6 +24,8 @@ export default defineConfig({
         const read = async (): Promise<string[]> => (await page.request.get(new URL('/api/items', page.url()).href)).json();
         const before = (await read()).filter(item => item === title).length;
         return { async check() {
+          await expect.poll(async () => (await read()).filter(item => item === title).length, { timeout: 3000 })
+            .toBe(before + 1).catch(() => {});
           const matched = (await read()).filter(item => item === title).length === before + 1;
           return { matched, message: matched ? 'one new task exists' : 'no new task exists' };
         } };

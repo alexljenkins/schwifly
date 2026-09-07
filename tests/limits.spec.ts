@@ -53,3 +53,28 @@ test('SIGTERM closes an owned browser before the owner exits', async () => {
     }).toBe(false);
   } finally { child.kill('SIGKILL'); }
 });
+
+test('cancelling a wrapper closes the browser owned by its nested runner', async () => {
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/runnerLifecycle.ts'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const exited = new Promise<number | null>(resolve => child.once('exit', resolve));
+  try {
+    const pid = await new Promise<number>((resolve, reject) => {
+      let output = '';
+      child.stdout.on('data', chunk => {
+        output += chunk;
+        const match = /READY:(\d+)/.exec(output);
+        if (match) resolve(Number(match[1]));
+      });
+      child.once('error', reject);
+      child.once('exit', () => reject(new Error('runner exited before its browser was ready')));
+    });
+    child.kill('SIGTERM');
+    expect(await exited).toBe(1);
+    await expect.poll(() => {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    }, { timeout: 10_000 }).toBe(false);
+  } finally { child.kill('SIGTERM'); }
+});

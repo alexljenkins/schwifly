@@ -31,7 +31,7 @@ test('codegen text maps to plain-string StepSpecs', () => {
       intent: 'fill the Email address field',
       locator: 'internal:label="Email address"i',
       action: 'fill',
-      value: 'alex@example.com',
+      value: '***REDACTED***',
     },
     {
       intent: 'see the Delete text',

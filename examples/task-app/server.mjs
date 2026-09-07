@@ -45,18 +45,28 @@ const server = createServer(async (request, response) => {
   const repair = version === 'repair';
   response.setHeader('content-type', 'text/html');
   response.end(`<!doctype html><html><body><h1>Tasks</h1>
-    ${quick ? '<label>Quick add <input id="quick-add"></label><button id="add">Add</button>' :
+    ${quick ? '<label>Quick add <input id="quick-add"></label><button id="add" disabled>Review task</button><button id="confirm" hidden>Confirm task</button>' :
       `<button id="${repair ? 'create' : 'new'}">New item</button><section hidden id="form"><label>Title <input id="title"></label><button id="save">Save</button></section>`}
     <ul id="items"></ul><script>
     const render = values => { document.querySelector('#items').replaceChildren(...values.map(value => {
       const li = document.createElement('li'); li.textContent = value; return li;
     })); };
     document.querySelector('#new, #create')?.addEventListener('click', () => document.querySelector('#form').hidden = false);
-    document.querySelector('#save, #add').addEventListener('click', async () => {
-      const title = document.querySelector('input').value;
+    const submit = async title => {
       const response = await fetch('/api/items', {method: 'POST', headers: {'content-type':'application/json'}, body:JSON.stringify({title})});
       render(await response.json());
-    });
+    };
+    document.querySelector('#save')?.addEventListener('click', () => submit(document.querySelector('input').value));
+    const quick = document.querySelector('#quick-add');
+    if (quick) {
+      let pending = '';
+      quick.addEventListener('input', () => document.querySelector('#add').disabled = !quick.value.trim());
+      document.querySelector('#add').addEventListener('click', () => {
+        pending = quick.value; quick.disabled = true;
+        document.querySelector('#confirm').hidden = false;
+      });
+      document.querySelector('#confirm').addEventListener('click', () => submit(pending));
+    }
     fetch('/api/items').then(r=>r.json()).then(render);
     </script></body></html>`);
 });
