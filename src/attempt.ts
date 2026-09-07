@@ -1,3 +1,4 @@
+import { bounded, discoverySteps, MAX_DISCOVERY_STEPS } from './limits';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
@@ -92,7 +93,7 @@ export interface StoryDiscovery {
 }
 
 // Small fixed defaults. A bounded attempt is a locked constraint, not a knob.
-export const MAX_STEPS = 12;
+export const MAX_STEPS = MAX_DISCOVERY_STEPS;
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
 // Candidates live in their own depth-1 dir: '../src/...' imports resolve, the `candidate`
 // Playwright project can find them, and `schwifly run workflows/` never picks one up.
@@ -105,7 +106,7 @@ function candidatePath(): string {
  * Every failure path returns ok:false and leaves no workflow behind.
  */
 export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> {
-  const maxSteps = opts.maxSteps ?? MAX_STEPS;
+  const maxSteps = discoverySteps(opts.maxSteps);
   const visible = opts.visible ?? false;
 
   // Discovery can spend money and mutate the remote app. Refuse a destructive local write first.
@@ -183,7 +184,7 @@ function write(file: string, source: string, exclusive = false): void {
 // every step failed still exits 0. GREEN means the step log says every step ran ok.
 async function replayAgentFree(file: string): Promise<boolean> {
   clearRunLogs(STEP_LOG);
-  const r = runPlaywright(['test', file, '--reporter=line'], {
+  const r = await runPlaywright(['test', file, '--reporter=line'], {
     stdio: 'inherit',
     env: { ...process.env, SCHWIFLY_NO_HEAL: '1' },
   });
@@ -321,12 +322,13 @@ async function captureLive<T>(
     };
 
     const execute = async (instruction: string): Promise<string> => {
-      const result = await stagehand.agent({ mode: 'dom' }).execute({
+      const result = await bounded(stagehand.agent({ mode: 'dom' }).execute({
         instruction,
-        maxSteps,
+        maxSteps: discoverySteps(maxSteps),
+        signal: session.signal,
         page: page as never,
         callbacks: { onEvidence } as never,
-      });
+      }), session.signal);
       return redact(String(result?.message ?? ''));
     };
     return { actions, value: await run(page, execute) };

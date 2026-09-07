@@ -141,7 +141,7 @@ async function runWorkflows(args: string[]): Promise<number> {
   clearRunLogs(PROOF_LOG);
   rmSync(REPORT, { force: true });
 
-  const runner = runPlaywright(['test', target, ...playwrightArgs], { stdio: 'inherit' });
+  const runner = await runPlaywright(['test', target, ...playwrightArgs], { stdio: 'inherit' });
   const report: PwReport = existsSync(REPORT)
     ? JSON.parse(readFileSync(REPORT, 'utf8')) as PwReport
     : { suites: [], errors: [] };
@@ -297,7 +297,7 @@ async function record(argv: string[]): Promise<number> {
   const capture = join(tempDir, 'codegen.spec.ts');
   try {
     console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
-    const runner = runPlaywright(
+    const runner = await runPlaywright(
       ['codegen', '--target', 'playwright-test', '-o', capture, url],
       { stdio: 'inherit' },
     );

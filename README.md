@@ -348,3 +348,8 @@ businesses (fewer than 100 people and under $1M/yr revenue); other use requires 
 ---
 
 Copyright Alex Jenkins 2026
+
+Browser verification defaults to 1 worker. Child Playwright runners also force 1 worker.
+Run `pnpm run typecheck` separately, then `pnpm run verify --workers=1`.
+Discovery accepts at most 12 steps. Each shared browser session closes after 120 seconds.
+Child runners stop after 180 seconds and terminate their process group on cancellation.

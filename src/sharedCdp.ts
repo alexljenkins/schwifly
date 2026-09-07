@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
 import { DEFAULT_MODEL } from './llm';
+import { bounded, SESSION_TIMEOUT_MS } from './limits';
 
 // Shared-CDP substrate: Stagehand OWNS Chromium, Playwright ATTACHES over CDP, so
 // Stagehand observe()/act() and step()'s Playwright locators drive the SAME DOM.
@@ -12,6 +13,7 @@ import { DEFAULT_MODEL } from './llm';
 // { page } to observe/act so they target this exact page.
 
 export interface SharedSession {
+  signal: AbortSignal;
   stagehand: Stagehand;
   browser: Browser;
   page: Page;
@@ -31,6 +33,7 @@ export interface SharedSessionOptions {
   evidence?: boolean;
   /** Force a headed browser regardless of SCHWIFLY_HEADED (the `attempt --visible` demo switch). */
   headed?: boolean;
+  timeoutMs?: number;
 }
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
@@ -50,29 +53,37 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
       args: ['--no-sandbox'],
     },
   });
-  await stagehand.init();
-
-  let browser: Browser;
+  const controller = new AbortController();
+  let browser: Browser | undefined;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => closing ??= (async () => {
+    clearTimeout(timer);
+    process.removeListener('SIGINT', interrupt);
+    process.removeListener('SIGTERM', interrupt);
+    controller.abort(new Error('browser session closed'));
+    await browser?.close().catch(() => {});
+    await stagehand.close().catch(() => {});
+  })();
+  const interrupt = () => { void close().finally(() => { process.exitCode = 1; }); };
+  const timer = setTimeout(() => {
+    controller.abort(new Error('browser session exceeded its elapsed-time limit'));
+    void close();
+  }, opts.timeoutMs ?? SESSION_TIMEOUT_MS);
+  process.once('SIGINT', interrupt);
+  process.once('SIGTERM', interrupt);
   let page: Page;
   try {
+    await bounded(stagehand.init(), controller.signal);
     browser = await chromium.connectOverCDP(stagehand.connectURL());
     const firstPage = browser.contexts()[0]?.pages()[0];
     if (!firstPage) throw new Error('Stagehand opened no browser page');
     page = firstPage;
   } catch (error) {
-    await stagehand.close().catch(() => {});
+    await close();
     throw error;
   }
 
-  return {
-    stagehand,
-    browser,
-    page,
-    async close() {
-      // Detach Playwright first, then let Stagehand tear down the Chromium it owns, or
-      // Chromium leaks across workers under fullyParallel.
-      await browser.close().catch(() => {});
-      await stagehand.close().catch(() => {});
-    },
-  };
+  page.setDefaultTimeout(5000);
+  page.setDefaultNavigationTimeout(30_000);
+  return { signal: controller.signal, stagehand, browser, page, close };
 }

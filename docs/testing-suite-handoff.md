@@ -25,7 +25,7 @@ The larger [contract design](../SCHWIFLY-USER-OUTCOME-CONTRACTS.md) explains the
 
 Complete these in order, with focused checks and a commit at each checkpoint.
 
-- [ ] **Make browser use predictable.** Default local verification and suite execution to 1 worker.
+- [x] **Make browser use predictable.** Default local verification and suite execution to 1 worker.
   Bound discovery steps, elapsed time, recovery attempts, and model retries. Close browsers after errors and cancellation.
   Check child Playwright processes too. A parent worker limit alone does not constrain separately launched runners.
   Done when failure and interruption leave no owned browser processes, and serial execution is the documented default.

@@ -1,3 +1,4 @@
+import { discoverySteps } from './limits';
 import { randomUUID } from 'node:crypto';
 import {
   existsSync,
@@ -97,7 +98,7 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory): Promi
   const evidenceDir = resolve(loaded.root, '.schwifly', 'certifications', `${process.pid}.${randomUUID()}`);
   const stepLog = resolve(evidenceDir, 'steps.ndjson');
   const proofLog = resolve(evidenceDir, 'proofs.ndjson');
-  const run = runPlaywright(['test', file, '--reporter=line'], {
+  const run = await runPlaywright(['test', file, '--reporter=line'], {
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -146,7 +147,7 @@ async function discover(
   return (options.discover ?? liveDiscoverStory)({
     loaded,
     proofs,
-    maxSteps: options.maxSteps ?? MAX_STEPS,
+    maxSteps: discoverySteps(options.maxSteps),
     visible: options.visible ?? false,
   });
 }

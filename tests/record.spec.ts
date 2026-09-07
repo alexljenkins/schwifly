@@ -180,7 +180,7 @@ test('the emitted recorded file runs unmodified with every step green', async ({
     assertions: [],
   }));
   try {
-    const run = runPlaywright(
+    const run = await runPlaywright(
       ['test', candidate, '--project=candidate', '--workers=1'],
       {
         cwd: root,
@@ -220,7 +220,7 @@ test('an emitted popup workflow runs steps on both pages and switches back', asy
     assertions: [],
   }));
   try {
-    const run = runPlaywright(
+    const run = await runPlaywright(
       ['test', candidate, '--project=candidate', '--workers=1'],
       {
         cwd: root,
