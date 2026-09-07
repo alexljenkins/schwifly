@@ -55,6 +55,7 @@ test('one unchanged story survives a real Chromium route rebuild across 2 interf
   writeFileSync(configFile, `import { defineConfig, defineProof } from './src/proofs';
 
 export default defineConfig({
+  async setup() {},
   proofs: {
     'task.itemExists': defineProof<{ title: string }>({
       parse(input) {

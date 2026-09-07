@@ -394,3 +394,29 @@ Check the packed archive in a separate consumer directory:
 ```bash
 pnpm run verify:package
 ```
+
+## Repeatable login sessions
+
+Story runs require an app-owned `setup()` function in `schwifly.config.ts`.
+The function resets test data before discovery, repair, and each fresh replay.
+Use an explicit no-op only for stories whose app needs no reset.
+
+The generated task example already resets its list. To test login, put these values in its `.env`:
+
+```dotenv
+SCHWIFLY_DEMO_AUTH=1
+APP_PASSWORD=choose-a-test-password
+```
+
+Restart the example server, then capture login:
+
+```bash
+node login.mjs
+```
+
+For your own app, configure `session.storageState` and `session.check()`.
+`storageState` names a Playwright state file relative to the consumer root.
+`check()` returns whether the loaded session is authenticated. Expired sessions fail before discovery.
+Keep the state file under the ignored `.schwifly/auth/` directory.
+Schwifly restores cookies, localStorage, and IndexedDB into fresh sessions through the shared browser connection.
+The initial scope uses 1 identity and serial execution.

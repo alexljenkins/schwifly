@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 export function initialize(args: string[], root = process.cwd()): void {
   if (args.length) throw new Error('usage: schwifly init [--root <directory>]');
   const example = new URL('../examples/task-app/', import.meta.url);
-  const files = ['schwifly.config.ts', 'stories/add-item.story.yaml', 'server.mjs'];
+  const files = ['schwifly.config.ts', 'stories/add-item.story.yaml', 'server.mjs', 'login.mjs'];
   for (const file of files) {
     if (existsSync(resolve(root, file))) throw new Error(`init refuses to overwrite ${file}`);
   }

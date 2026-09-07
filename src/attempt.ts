@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test';
 import { emit, type EmitAssertion, type EmitStep } from './emit.js';
 import { stableSelector } from './generate.js';
 import { openSharedSession } from './sharedCdp.js';
+import { openConfiguredSession } from './session.js';
 import { redact } from './secrets.js';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
 import type { StepResult } from './workflow.js';
@@ -214,7 +215,7 @@ export function replayGreen(exitCode: number, results: StepResult[]): boolean {
 // FRONT against the start page. It must land on deterministic page assertions; this proposal is
 // the ONLY judgement call, and it happens before the attempt, never at replay time.
 async function proposeContractLive(ticket: string, url: string, visible: boolean): Promise<OutcomeContract | null> {
-  const session = await openSharedSession({ headed: visible });
+  const session = await openConfiguredSession({ url, phase: 'discovery', headed: visible });
   try {
     await session.page.goto(url);
     const answer = await session.stagehand.extract(
@@ -269,7 +270,7 @@ export async function liveDiscoverStory(req: StoryDiscoveryRequest): Promise<Sto
     });
     if (proofRun.routeError) throw proofRun.routeError;
     return { proofs: proofRun.records, notes };
-  });
+  }, () => openConfiguredSession({ root: req.loaded.root, url: story.start.url, story, phase: 'discovery', evidence: true, headed: req.visible }));
   return { actions: captured.actions, ...captured.value };
 }
 
@@ -278,8 +279,9 @@ async function captureLive<T>(
   maxSteps: number,
   visible: boolean,
   run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
+  open = () => openConfiguredSession({ url, phase: 'discovery', evidence: true, headed: visible }),
 ): Promise<{ actions: CapturedAction[]; value: T }> {
-  const session = await openSharedSession({ evidence: true, headed: visible });
+  const session = await open();
   try {
     const { page, stagehand } = session;
     await guardOrigin(page, url);

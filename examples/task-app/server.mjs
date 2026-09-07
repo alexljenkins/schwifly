@@ -1,7 +1,29 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
+if (existsSync('.env')) process.loadEnvFile('.env');
 let items = [];
 const server = createServer(async (request, response) => {
+  const auth = process.env.SCHWIFLY_DEMO_AUTH === '1';
+  const loggedIn = request.headers.cookie?.split('; ').includes('demo_session=example-session-cookie');
+  if (request.url === '/login' && request.method === 'POST') {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    if (!process.env.APP_PASSWORD || JSON.parse(body).password !== process.env.APP_PASSWORD) {
+      response.writeHead(401).end('login failed');
+      return;
+    }
+    response.setHeader('set-cookie', 'demo_session=example-session-cookie; HttpOnly; SameSite=Lax; Path=/');
+    response.end('logged in');
+    return;
+  }
+  if (request.url === '/api/session') {
+    response.writeHead(!auth || loggedIn ? 200 : 401).end('session check');
+    return;
+  }
+  if (auth && !loggedIn) {
+    response.writeHead(401).end('Login required');
+    return;
+  }
   const state = process.env.SCHWIFLY_DEMO_STATE;
   const version = state && existsSync(state) ? readFileSync(state, 'utf8').trim() : 'A';
   if (request.url === '/reset' && request.method === 'POST') {

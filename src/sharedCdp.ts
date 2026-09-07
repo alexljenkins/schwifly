@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { registerSecrets } from './secrets.js';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
 import { sessionModel } from './llm.js';
@@ -34,6 +36,7 @@ export interface SharedSessionOptions {
   /** Force a headed browser regardless of SCHWIFLY_HEADED (the `attempt --visible` demo switch). */
   headed?: boolean;
   timeoutMs?: number;
+  storageState?: string;
 }
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
@@ -78,6 +81,19 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
     const firstPage = browser.contexts()[0]?.pages()[0];
     if (!firstPage) throw new Error('Stagehand opened no browser page');
     page = firstPage;
+    if (opts.storageState) {
+      const state = JSON.parse(readFileSync(opts.storageState, 'utf8'));
+      if (!Array.isArray(state.cookies) || !Array.isArray(state.origins)) throw new Error('invalid saved login state');
+      registerSecrets([
+        ...state.cookies.map((cookie: { value: string }) => cookie.value),
+        ...state.origins.flatMap((origin: { localStorage: Array<{ value: string }> }) => origin.localStorage.map(item => item.value)),
+      ]);
+      // Let Playwright restore the complete state once, including IndexedDB. Stagehand sees
+      // this context through the same CDP connection and receives its page explicitly.
+      const context = await browser.newContext({ storageState: state });
+      page = await context.newPage();
+      await firstPage.close();
+    }
   } catch (error) {
     await close();
     throw error;

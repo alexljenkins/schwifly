@@ -35,3 +35,14 @@ Browser commands run serially. Child runners force 1 worker.
   Discovery uses scripted browser actions in this key-free package check. Certification runs real Chromium.
 - Typecheck passed. The 28 focused generator, CLI, and story tests pass after updating the emitted import contract.
 - The public API loads TypeScript config through tsx outside tests. Playwright owns config loading inside its tests.
+
+## 4. Repeatable sessions
+
+The app owns setup/reset and login verification in `schwifly.config.ts`.
+Stories require setup before browser work. Configured sessions require saved state and a login check.
+Each discovery, repair, and certification starts a fresh session and runs setup again.
+Session values join the redaction set and never enter generated workflow source.
+- The authenticated packed consumer passes fresh discovery, replay, recording import, and rebuilding.
+  Expired login and missing setup return explicit failures.
+- A live OpenRouter repair passes in a context restored from saved state. Replay makes 0 model calls.
+- The 17 focused auth, redaction, and generator checks pass. Refreshed localStorage survives navigation.

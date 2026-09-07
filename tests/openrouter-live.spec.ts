@@ -32,9 +32,20 @@ test('OpenRouter discovers, repairs through observe, and replays without model c
     });
     expect(attempt.ok, attempt.reason).toBe(true);
     expect(calls()).toBeGreaterThan(0);
-    const session = await openSharedSession();
+    const loginSession = await openSharedSession();
+    const stateFile = resolve('.schwifly', `live-state-${process.pid}.json`);
+    try {
+      await loginSession.page.goto(url);
+      await loginSession.page.evaluate(() => localStorage.setItem('login-marker', 'saved'));
+      await loginSession.page.context().storageState({ path: stateFile });
+    } finally { await loginSession.close(); }
+    const session = await openSharedSession({ storageState: stateFile });
     try {
       await session.page.goto(url);
+      expect(await session.page.evaluate(() => localStorage.getItem('login-marker'))).toBe('saved');
+      await session.page.evaluate(() => localStorage.setItem('login-marker', 'refreshed'));
+      await session.page.reload();
+      expect(await session.page.evaluate(() => localStorage.getItem('login-marker'))).toBe('refreshed');
       const before = calls();
       const result = await step(session.page, {
         intent: 'reveal the purchase confirmation', locator: '#removed', action: 'click',

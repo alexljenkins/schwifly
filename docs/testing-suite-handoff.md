@@ -40,7 +40,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
   Provide a small initialization example with outcome checks and product-specific proof functions.
   Done when a separate fixture app installs a packed archive and attempts, runs, records, and rebuilds without this checkout's source.
 
-- [ ] **Support authenticated, repeatable sessions.** Bridge saved login state into discovery, replay, and recovery through `src/sharedCdp.ts`.
+- [x] **Support authenticated, repeatable sessions.** Bridge saved login state into discovery, replay, and recovery through `src/sharedCdp.ts`.
   Add an app-owned setup/reset mechanism so discovery cannot leave data that makes replay pass accidentally.
   Start with serial use of 1 test identity. Keep credentials and session files out of generated source and reports.
   Done when a login-required story passes in fresh sessions, while expired login and missing setup fail clearly.

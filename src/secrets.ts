@@ -25,7 +25,7 @@ export function credentials(): Credentials {
 
 // Keys whose VALUE is a secret. Substring match, case-insensitive (so `apiKey`, `API_KEY`,
 // `userPassword`, `auth_token` all hit). Ported from secrets.py's redacted_keys set.
-const SECRET_KEYS = ['password', 'api_key', 'apikey', 'token', 'secret'];
+const SECRET_KEYS = ['email', 'password', 'api_key', 'apikey', 'token', 'secret'];
 export const REDACTED = '***REDACTED***';
 
 function isSecretKey(key: string): boolean {
@@ -50,6 +50,11 @@ export function redact<T>(value: T): T {
 }
 
 // Scrub `key: value` / `key=value` pairs in free-form text (logs, error strings, CLI output).
+const sessionSecrets = new Set<string>();
+export function registerSecrets(values: string[]): void {
+  for (const value of values) if (value.length >= 4) sessionSecrets.add(value);
+}
+
 function redactString(text: string): string {
   let out = text;
   const secretValues = Object.entries(process.env)
@@ -58,7 +63,7 @@ function redactString(text: string): string {
     .filter(([key, value]) => value && value.length >= 4 && isSecretKey(key))
     .map(([, value]) => value as string)
     .sort((a, b) => b.length - a.length);
-  for (const value of secretValues) out = out.split(value).join(REDACTED);
+  for (const value of [...secretValues, ...sessionSecrets].sort((a, b) => b.length - a.length)) out = out.split(value).join(REDACTED);
   for (const key of SECRET_KEYS) {
     const re = new RegExp(`\\b${key}\\b\\s*[:=]\\s*['"]?([^'"\\s]+)['"]?`, 'gi');
     out = out.replace(re, `${key}: ${REDACTED}`);
