@@ -124,12 +124,14 @@ Story-backed runs first replay the established route without healing.
 A broken route gets 1 element-repair attempt. The resolver tries accessible names before asking the model.
 If repair cannot certify the story, Schwifly attempts 1 route rebuild using the same story and proofs.
 Both repair paths require a fresh replay with healing disabled before write-back.
+Login, setup, provider, and session-deadline failures stop recovery at every phase.
 Failed certification and concurrent route edits preserve the prior route.
 If route actions pass but a proof fails, Schwifly reports an outcome regression without changing the route.
 A login, setup, provider, or session-deadline failure inside the runner reports that kind and starts no recovery.
 The report keeps the runner diagnostic at `.schwifly/certifications/<run>/runner.txt`.
 
 Generated story markers also send workflow-file and workflow-directory runs through story certification.
+Malformed markers and missing story files produce invalid-contract results. Directory runs continue with the remaining workflows.
 Legacy workflows without a story retain their existing locator-repair behavior.
 To disable recovery for a run:
 

@@ -36,7 +36,7 @@ export interface SharedSessionOptions {
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
   const controller = new AbortController();
   let providerFailure: ProviderError | undefined;
-  const model = sessionModel(controller.signal, error => { providerFailure = error; });
+  const model = sessionModel(controller.signal, error => { providerFailure = error; recordRunnerFailure(error); });
   // Reuse the Chromium Playwright already installed (no extra Chrome download / system Chrome
   // dependency). Without executablePath, Stagehand's chrome-launcher errors "CHROME_PATH must
   // be set". --no-sandbox is required to launch Chromium inside sandboxed CI/Linux (otherwise

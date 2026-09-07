@@ -45,6 +45,7 @@ test('element repair saves only after independent certification', async () => {
     });
     expect(result.ok).toBe(true);
     expect(result.recovery).toBe('element');
+    expect(readdirSync(resolve(root, 'candidates'))).toEqual([]);
     expect(certifications).toBe(1);
     expect(readFileSync(route, 'utf8')).toContain("locator: '#new'");
     expect(result.report?.artifacts.some(path => path.endsWith('.diff'))).toBe(true);
@@ -131,5 +132,24 @@ test('explicit rebuild stops discovery after a session failure', async () => {
     });
     expect(result.report?.failure?.kind).toBe('authentication');
     expect(readFileSync(route, 'utf8')).toBe(original);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const stage of ['repair', 'certification'] as const)
+for (const kind of ['browser_failure', 'authentication', 'provider_failure'] as const)
+test(`${kind} during ${stage} stops recovery and reports that stage`, async () => {
+  const { root, file, route, original } = fixture();
+  const failure: CertificationResult = { ...red, failure: { kind, reason: 'infrastructure unavailable' }, routeFailures: ['infrastructure unavailable'] };
+  try {
+    const result = await runStory({ root, file,
+      replay: async candidate => candidate === route ? red : failure,
+      repair: async () => stage === 'repair' ? failure : { ...green, heals: [{ file: route, original: '#old', healed: '#new', intent: 'save' }] },
+      discover: async () => { throw new Error('must not discover after infrastructure failure'); },
+    });
+    expect(result.report?.failure?.kind).toBe(kind);
+    expect(result.report?.failure?.reason).toContain('infrastructure unavailable');
+    expect(result.report?.phase).toBe(stage);
+    expect(readFileSync(route, 'utf8')).toBe(original);
+    if (stage === 'certification') expect(readdirSync(resolve(root, 'candidates'))).toEqual([]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

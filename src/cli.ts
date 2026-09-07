@@ -140,8 +140,15 @@ function workflowFiles(path: string): string[] {
       : entry.isFile() && entry.name.endsWith('.spec.ts') ? [join(path, entry.name)] : []).sort();
 }
 
+const STORY_MARKER = /^\/\/ Schwifly story:(.*)$/m;
+
+function hasStoryMarker(file: string): boolean {
+  try { return STORY_MARKER.test(readFileSync(file, 'utf8')); }
+  catch { return true; } // An unreadable file is never eligible for legacy write-back.
+}
+
 function storyForWorkflow(file: string): string | undefined {
-  const match = /^\/\/ Schwifly story: (.+)$/m.exec(readFileSync(file, 'utf8'));
+  const match = STORY_MARKER.exec(readFileSync(file, 'utf8'));
   if (!match) return undefined;
   const story: unknown = JSON.parse(match[1]);
   if (typeof story !== 'string' || !story.endsWith('.story.yaml')) throw new Error('invalid story marker in workflow');
@@ -164,14 +171,25 @@ async function runWorkflows(args: string[]): Promise<number> {
   const target = hasTarget ? args[0] : 'workflows/';
   const playwrightArgs = hasTarget ? args.slice(1) : args;
   const files = workflowFiles(resolve(target));
-  const backed = files.map(file => ({ file, story: storyForWorkflow(file) }));
-  if (backed.some(item => item.story)) {
+  const backed = files.map(file => {
+    try { return { file, story: storyForWorkflow(file) }; }
+    catch (error) { return { file, error }; }
+  });
+  if (backed.some(item => item.story || item.error)) {
     if (playwrightArgs.some(arg => arg !== '--workers=1' && arg !== '--json')) {
       throw new Error('story-backed runs accept --json and --workers=1; use suite for story selection');
     }
     if (files.length > 1 && playwrightArgs.includes('--json')) throw new Error('use schwifly suite --json for aggregate results');
     let failed = false;
     for (const item of backed) {
+      if (item.error) {
+        const { reportOperation } = await import('./result.js');
+        const result = await reportOperation({ file: item.file }, async () => { throw item.error; });
+        if (playwrightArgs.includes('--json')) console.log(JSON.stringify(result.report));
+        else reportStoryCommand('run', result);
+        failed = true;
+        continue;
+      }
       const code = await runWorkflows([item.story ?? item.file, ...playwrightArgs.filter(arg => arg !== '--workers=1')]);
       failed ||= code !== 0;
       if (process.exitCode === 1) break;
@@ -213,7 +231,7 @@ async function runWorkflows(args: string[]): Promise<number> {
     (runner.status === 0 || (runner.status !== null && hasReportedFailure)) &&
     !(report.errors?.length);
   const eligible = evidenceComplete ? successfulHeals(verdicts) : [];
-  const safe = eligible.filter((heal) => insideWorkspace(heal.file) && !storyForWorkflow(heal.file));
+  const safe = eligible.filter((heal) => insideWorkspace(heal.file) && !hasStoryMarker(heal.file));
   let updated = 0;
   for (const heal of safe) if (applyHeal(heal)) updated++;
   if (heals.length) {

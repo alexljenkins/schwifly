@@ -58,8 +58,8 @@ const BENIGN_VALUE = /^(?:true|false|null|undefined|none|auto|on|off|yes|no|ligh
 const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.+=~]{24,}$/;
 
 function isCredentialKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return CREDENTIAL_KEYS.some((name) => k.includes(name));
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/);
+  return words.some(word => CREDENTIAL_KEYS.includes(word)) || /(?:^|_)api_key(?:_|$)/.test(words.join('_'));
 }
 
 // An opaque token has no spaces, no URL punctuation, and mixes letters with digits. A stored URL,
@@ -72,8 +72,8 @@ const sessionSecrets = new Set<string>();
 export interface SecretEntry { key: string; value: string }
 export function registerSecrets(entries: SecretEntry[]): void {
   for (const { key, value } of entries) {
-    if (typeof value !== 'string' || value.length < 4 || BENIGN_VALUE.test(value)) continue;
-    if (isCredentialKey(key) || isOpaqueToken(value)) sessionSecrets.add(value);
+    if (typeof value !== 'string' || value.length < 4) continue;
+    if (isCredentialKey(key) || (!BENIGN_VALUE.test(value) && isOpaqueToken(value))) sessionSecrets.add(value);
   }
 }
 

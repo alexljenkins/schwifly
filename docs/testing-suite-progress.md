@@ -77,3 +77,16 @@ Raw story-backed workflow commands use the same recovery path. Repair diffs rema
   The expanded full run passed 122 tests and skipped 3 live checks. Its 3 failures expected unmasked email values.
   The corrected capture and recording checks pass all 27 tests, including explicit email masking.
   Final gate and CI results belong in the PR.
+
+## Review corrections
+
+- Structured child-runner errors preserve login, setup, provider, cancellation, and deadline reasons.
+  These failures stop recovery during replay, repair, and certification. Reports retain runner diagnostics.
+- Credential registration preserves ordinary preferences and matches whole key words. Credential keys still mask short values.
+- Story-marker failures produce invalid-contract results and never fall back to legacy write-back.
+  Directory runs continue with other workflows.
+- Element candidates are temporary on every outcome. Package checks clean installed fixtures after retaining redacted evidence.
+- The gate review passed 37 focused checks and 11 key-free consumer scenarios.
+  The remaining corrections passed 33 focused checks and type checking.
+- Final local verification passes 137 tests with 3 live checks skipped.
+  The independent package passes all 11 scenarios with 0 model calls and removes its temporary consumer.

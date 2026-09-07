@@ -1,3 +1,5 @@
+import { readFileSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { llmConfigFromEnv, DEFAULT_MODEL } from '../src/llm';
 import { openSharedSession } from '../src/sharedCdp';
@@ -7,6 +9,9 @@ for (const [status, message] of [[401, 'authentication'], [402, 'budget'], [429,
   test(`OpenRouter ${mode} HTTP ${status} fails once without retry or credential leakage`, async () => {
     const oldKey = process.env.OPENROUTER_API_KEY;
     const oldModel = process.env.SCHWIFLY_MODEL;
+    const oldLog = process.env.SCHWIFLY_FAILURE_LOG;
+    const failureLog = resolve('.schwifly', `provider-${process.pid}-${mode}-${status}.ndjson`);
+    process.env.SCHWIFLY_FAILURE_LOG = failureLog;
     process.env.OPENROUTER_API_KEY = 'test-private-key';
     delete process.env.SCHWIFLY_MODEL;
     const fetch = globalThis.fetch;
@@ -35,9 +40,15 @@ for (const [status, message] of [[401, 'authentication'], [402, 'budget'], [429,
       expect(session.providerFailure?.message).toContain(message);
       expect(session.providerFailure?.message).not.toContain('test-private-key');
       expect(requests).toBe(1);
+      const record = readFileSync(failureLog, 'utf8').trim();
+      expect(JSON.parse(record).kind).toBe('provider_failure');
+      expect(record).not.toContain('test-private-key');
     } finally {
       await session?.close();
       globalThis.fetch = fetch;
+      rmSync(failureLog, { force: true });
+      if (oldLog === undefined) delete process.env.SCHWIFLY_FAILURE_LOG;
+      else process.env.SCHWIFLY_FAILURE_LOG = oldLog;
       if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = oldKey;
       if (oldModel === undefined) delete process.env.SCHWIFLY_MODEL;

@@ -143,7 +143,10 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory, option
   // The child boundary reduces a session failure to a bare exit code. Its recorded reason names
   // the real cause and keeps the caller from paying for a repair the app cannot fix.
   const failure = readRunLogs<RunnerFailure>(failureLog)[0];
-  if (failure) result.routeFailures.unshift(`${failure.kind}: ${failure.reason}`);
+  if (failure) {
+    result.green = false;
+    result.routeFailures.unshift(`${failure.kind}: ${failure.reason}`);
+  }
   if (result.green) rmSync(evidenceDir, { recursive: true, force: true });
   const artifacts = readRunLogs<{ path: string }>(artifactLog).map(record => record.path);
   if (!result.green) {
@@ -348,9 +351,9 @@ export async function runStory(options: StoryAttemptOptions): Promise<StoryComma
     if (!existsSync(loaded.routeFile)) return { ok: false, reason: 'route does not exist; run schwifly attempt first' };
     const original = readFileSync(loaded.routeFile, 'utf8');
     const initial = await replay(options.replay, loaded.routeFile, loaded);
-    const failed = (): StoryCommandResult => ({ ok: false, saved: display(loaded.root, loaded.routeFile),
-      failureKind: initial.failure?.kind, certification: initial,
-      reason: proofFailureReason('replay failed; prior route preserved: ', initial) });
+    const failed = (certification = initial): StoryCommandResult => ({ ok: false, saved: display(loaded.root, loaded.routeFile),
+      failureKind: certification.failure?.kind, certification,
+      reason: proofFailureReason(`${state.phase} failed; prior route preserved: `, certification) });
     if (initial.green) return { ok: true, unchanged: true, saved: display(loaded.root, loaded.routeFile), certification: initial };
     // Successful route actions plus failed proofs identify an outcome regression, not a locator
     // defect. A recorded session failure is infrastructure, which no repair or rebuild can fix.
@@ -359,17 +362,16 @@ export async function runStory(options: StoryAttemptOptions): Promise<StoryComma
     state.phase = 'repair';
     const repaired = await (options.repair ?? ((file, loaded) => replayStoryRoute(file, loaded, { healing: true })))(loaded.routeFile, loaded);
     state.artifacts.push(...repaired.artifacts ?? []);
-    if (repaired.cancelled) return { ...failed(), certification: repaired };
+    if (repaired.cancelled || repaired.failure) return failed(repaired);
     if (repaired.green && repaired.heals?.length) {
       const candidate = candidatePath(loaded.root);
-      let saved = false;
       try {
         writeCandidate(candidate, original);
         const applied = repaired.heals.every(heal => applyHeal({ ...heal, file: candidate }));
         if (applied) {
           state.phase = 'certification';
           const certified = await replay(options.replay, candidate, loaded);
-          if (certified.cancelled) return { ...failed(), certification: certified };
+          if (certified.cancelled || certified.failure) return failed(certified);
           state.artifacts.push(...certified.artifacts ?? []);
           if (certified.green) {
             if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
@@ -380,15 +382,13 @@ export async function runStory(options: StoryAttemptOptions): Promise<StoryComma
               if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
               renameSync(pending, loaded.routeFile);
             } finally { rmSync(pending, { force: true }); }
-            saved = true;
             state.artifacts.push(writeRepairDiff(loaded.root, display(loaded.root, loaded.routeFile), original, replacement));
             return { ok: true, recovery: 'element', saved: display(loaded.root, loaded.routeFile), certification: certified };
           }
         }
       } finally {
-        // The rebuild below writes its own candidate. An uncertified repair candidate is not
-        // evidence anyone can act on, so it never outlives this attempt.
-        if (!saved) rmSync(candidate, { force: true });
+        // The established route or a rebuild candidate owns the result after this trial.
+        rmSync(candidate, { force: true });
       }
     }
     if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
