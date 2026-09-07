@@ -35,7 +35,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
   Done when 1 live discovery and 1 forced model repair pass, followed by replay with zero model calls.
   Keep transport and error tests key-free. Record the tested model ID and installed dependency versions.
 
-- [ ] **Deliver an installable package.** Add compiled runtime exports, a CLI executable, and deliberate published file contents.
+- [x] **Deliver an installable package.** Add compiled runtime exports, a CLI executable, and deliberate published file contents.
   Generate imports from the package and resolve stories, config, routes, and evidence against an explicit consumer root.
   Provide a small initialization example with outcome checks and product-specific proof functions.
   Done when a separate fixture app installs a packed archive and attempts, runs, records, and rebuilds without this checkout's source.

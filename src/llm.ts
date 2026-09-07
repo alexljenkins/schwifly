@@ -1,7 +1,7 @@
 import type { ModelConfiguration } from '@browserbasehq/stagehand';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { MODEL_TIMEOUT_MS, bounded } from './limits';
+import { MODEL_TIMEOUT_MS, bounded } from './limits.js';
 
 export const DEFAULT_MODEL = 'google/gemini-3.5-flash-lite';
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1';

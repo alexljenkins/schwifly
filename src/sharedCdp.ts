@@ -1,7 +1,7 @@
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { Stagehand } from '@browserbasehq/stagehand';
-import { sessionModel } from './llm';
-import { bounded, SESSION_TIMEOUT_MS } from './limits';
+import { sessionModel } from './llm.js';
+import { bounded, SESSION_TIMEOUT_MS } from './limits.js';
 
 // Shared-CDP substrate: Stagehand OWNS Chromium, Playwright ATTACHES over CDP, so
 // Stagehand observe()/act() and step()'s Playwright locators drive the SAME DOM.

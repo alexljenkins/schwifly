@@ -57,12 +57,12 @@ test('emit renders a spec whose byte-shape matches the example template and type
   });
 
   // Byte-shape contract carried from workflows/example.spec.ts.
-  expect(spec).toContain("import { test } from '@playwright/test';");
+  expect(spec).toContain("import { test } from 'schwifly/test';");
   expect(spec).toContain("import { fileURLToPath } from 'node:url';");
-  expect(spec).toContain("import { step } from '../src/workflow';");
+  expect(spec).toContain("import { step } from 'schwifly/workflow';");
   // Wired to the LLM heal tier over the shared-CDP session (not the tier-1-only heuristic).
-  expect(spec).toContain("import { EscalatingResolver } from '../src/heal';");
-  expect(spec).toContain("import { openSharedSession, type SharedSession } from '../src/sharedCdp';");
+  expect(spec).toContain("import { EscalatingResolver } from 'schwifly/heal';");
+  expect(spec).toContain("import { openSharedSession, type SharedSession } from 'schwifly/sharedCdp';");
   // The heal tier is wired in, but disableable for one run so the attempt flow's certification
   // replay cannot let a capture heal its way to GREEN.
   expect(spec).toContain("new EscalatingResolver(stagehand)");

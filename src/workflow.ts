@@ -1,9 +1,9 @@
 import { type Page, type Locator, expect } from '@playwright/test';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { q } from './emit';
-import { redact } from './secrets';
-import { HEAL_LOG, STEP_LOG, workerLogPath } from './runLogs';
+import { q } from './emit.js';
+import { redact } from './secrets.js';
+import { HEAL_LOG, STEP_LOG, workerLogPath } from './runLogs.js';
 
 // A Workflow is a real Playwright .spec.ts. Each step is deterministic-first: it tries a
 // concrete locator, and ONLY if that fails does the AI resolver kick in to find the element

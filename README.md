@@ -351,3 +351,46 @@ Browser verification defaults to 1 worker. Child Playwright runners also force 1
 Run `pnpm run typecheck` separately, then `pnpm run verify --workers=1`.
 Discovery accepts at most 12 steps. Each shared browser session closes after 120 seconds.
 Child runners stop after 180 seconds and terminate their process group on cancellation.
+
+## Install the package
+
+Use Node 22.6 or newer and pnpm. From the Schwifly checkout:
+
+```bash
+pnpm pack --pack-destination artifacts
+```
+
+From a consumer repository:
+
+```bash
+pnpm add -D /path/to/schwifly/artifacts/schwifly-0.1.0.tgz
+pnpm exec schwifly init
+node server.mjs
+```
+
+`init` creates a small task app, a story, and a product proof. It refuses to overwrite these files.
+The product proof checks that the app creates exactly 1 new task. It cannot pass from an old task alone.
+The example story uses port 4173. Run commands in another terminal:
+
+```bash
+pnpm exec schwifly attempt stories/add-item.story.yaml
+pnpm exec schwifly run workflows/add-item.spec.ts
+```
+
+Set `OPENROUTER_API_KEY` in the consumer's ignored `.env` file for discovery and model repair.
+`SCHWIFLY_MODEL` defaults to `google/gemini-3.5-flash-lite`.
+All commands accept `--root <consumer-directory>`. Stories, configuration, workflows, and evidence resolve there.
+Generated workflows import `schwifly/*`. They do not require this checkout's source files.
+The package supplies its own serial Playwright configuration when the consumer has none.
+
+Import an existing Playwright recording without opening the recorder:
+
+```bash
+pnpm exec schwifly record http://localhost:4173/app --from recording.ts
+```
+
+Check the packed archive in a separate consumer directory:
+
+```bash
+pnpm run verify:package
+```

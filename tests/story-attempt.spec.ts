@@ -84,7 +84,7 @@ test('a green story discovery and replay save a generated route without changing
     const source = readFileSync(item.route, 'utf8');
     expect(source).toContain('// Story add-item: Add an item');
     expect(source).toContain('// This route is generated and replaceable.');
-    expect(source).toContain('loadStory(storyFile)');
+    expect(source).toContain('loadStory(storyFile, process.env.SCHWIFLY_ROOT');
     expect(source).not.toContain('exact: http://127.0.0.1');
     expect(source).not.toContain('The agent says');
   } finally {

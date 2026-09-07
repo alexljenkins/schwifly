@@ -26,3 +26,12 @@ Browser commands run serially. Child runners force 1 worker.
 - Installed versions: Stagehand 3.7.1, Playwright 1.61.1, TypeScript 5.9.3, tsx 4.23.1.
 - Configuration follows [OpenRouter's chat endpoint](https://openrouter.ai/docs/quickstart)
   and [Stagehand model configuration](https://docs.stagehand.dev/v3/configuration/models).
+
+## 3. Installable package
+
+- The archive contains compiled runtime code, declarations, a CLI executable, and an initialization example.
+- Generated imports resolve through `schwifly/*`. Consumer roots control config, stories, routes, and evidence.
+- A separate app installed the archive in `/tmp`, then passed discovery, replay, recording import, and route rebuild.
+  Discovery uses scripted browser actions in this key-free package check. Certification runs real Chromium.
+- Typecheck passed. The 28 focused generator, CLI, and story tests pass after updating the emitted import contract.
+- The public API loads TypeScript config through tsx outside tests. Playwright owns config loading inside its tests.

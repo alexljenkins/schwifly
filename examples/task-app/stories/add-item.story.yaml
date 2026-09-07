@@ -1,0 +1,21 @@
+version: 1
+id: add-item
+ideal: work-is-saved
+title: Add an item
+start:
+  url: http://127.0.0.1:4173/app
+story:
+  as: a user
+  want: to add a task named Buy milk
+  so: I can plan my work
+route: workflows/add-item.spec.ts
+proofs:
+  must:
+    - id: task-created
+      use: tasks.created
+      with:
+        title: Buy milk
+  mustNot:
+    - id: no-browser-error
+      use: browser.consoleError
+      with: {}

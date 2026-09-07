@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
-import type { Resolver, StepSpec } from './workflow';
-import { llmConfigFromEnv } from './llm';
+import type { Resolver, StepSpec } from './workflow.js';
+import { llmConfigFromEnv } from './llm.js';
 
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
 

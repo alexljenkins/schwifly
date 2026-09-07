@@ -1,8 +1,8 @@
 import type { Locator, Page } from '@playwright/test';
 import type { Stagehand } from '@browserbasehq/stagehand';
-import { parseStory } from './parseStory';
-import { emit, type EmitStep, type EmitAssertion } from './emit';
-import { openSharedSession } from './sharedCdp';
+import { parseStory } from './parseStory.js';
+import { emit, type EmitStep, type EmitAssertion } from './emit.js';
+import { openSharedSession } from './sharedCdp.js';
 
 // LIVE discovery path (KEY-GATED): drive a real browser ONCE to turn each parsed intent into a
 // concrete, stable locator. Without a key this is never reached -- parseStory/emit cover the

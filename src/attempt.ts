@@ -1,29 +1,29 @@
-import { bounded, discoverySteps, MAX_DISCOVERY_STEPS } from './limits';
+import { bounded, discoverySteps, MAX_DISCOVERY_STEPS } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
-import { emit, type EmitAssertion, type EmitStep } from './emit';
-import { stableSelector } from './generate';
-import { openSharedSession } from './sharedCdp';
-import { redact } from './secrets';
-import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs';
-import type { StepResult } from './workflow';
-import type { LoadedStory } from './story';
+import { emit, type EmitAssertion, type EmitStep } from './emit.js';
+import { stableSelector } from './generate.js';
+import { openSharedSession } from './sharedCdp.js';
+import { redact } from './secrets.js';
+import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
+import type { StepResult } from './workflow.js';
+import type { LoadedStory } from './story.js';
 import {
   proofDescriptions,
   runProofs,
   type ProofRecord,
   type ValidatedProof,
-} from './proofs';
-import { runPlaywright } from './playwrightProcess';
+} from './proofs.js';
+import { runPlaywright } from './playwrightProcess.js';
 import {
   contractFromTicket,
   normalizeActions,
   proposedContract,
   type CapturedAction,
   type OutcomeContract,
-} from './capture';
+} from './capture.js';
 
 // task-to-verified-flow: an arbitrary ticket becomes a BOUNDED agent attempt, whose useful
 // observed actions become a deterministic .spec.ts, which is then replayed agent-free and saved

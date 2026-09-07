@@ -1,4 +1,4 @@
-import { discoverySteps } from './limits';
+import { discoverySteps } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import {
   existsSync,
@@ -9,15 +9,15 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { liveDiscoverStory, MAX_STEPS, type StoryDiscovery, type StoryDiscoveryRequest } from './attempt';
-import { normalizeActions } from './capture';
-import { emitStory } from './emit';
-import { loadAndValidateProofs, type ProofRecord, type ValidatedProof } from './proofs';
-import { runPlaywright } from './playwrightProcess';
-import { readRunLogs } from './runLogs';
-import { redact } from './secrets';
-import { loadStory, type LoadedStory } from './story';
-import type { StepResult } from './workflow';
+import { liveDiscoverStory, MAX_STEPS, type StoryDiscovery, type StoryDiscoveryRequest } from './attempt.js';
+import { normalizeActions } from './capture.js';
+import { emitStory } from './emit.js';
+import { loadAndValidateProofs, type ProofRecord, type ValidatedProof } from './proofs.js';
+import { runPlaywright } from './playwrightProcess.js';
+import { readRunLogs } from './runLogs.js';
+import { redact } from './secrets.js';
+import { loadStory, type LoadedStory } from './story.js';
+import type { StepResult } from './workflow.js';
 
 export interface CertificationResult {
   green: boolean;
@@ -100,6 +100,7 @@ export async function replayStoryRoute(file: string, loaded: LoadedStory): Promi
   const proofLog = resolve(evidenceDir, 'proofs.ndjson');
   const run = await runPlaywright(['test', file, '--reporter=line'], {
     stdio: 'inherit',
+    cwd: loaded.root,
     env: {
       ...process.env,
       SCHWIFLY_NO_HEAL: '1',
@@ -139,7 +140,7 @@ async function discover(
   proofs: ValidatedProof[],
 ): Promise<StoryDiscovery> {
   if (!options.discover) {
-    const { llmConfigFromEnv } = await import('./llm');
+    const { llmConfigFromEnv } = await import('./llm.js');
     if (!llmConfigFromEnv()) {
       throw new Error('story discovery needs an LLM key (OPENROUTER_API_KEY)');
     }
