@@ -29,6 +29,7 @@ export interface SharedSessionOptions {
   evidence?: boolean;
   /** Force a headed browser regardless of SCHWIFLY_HEADED (the `attempt --visible` demo switch). */
   headed?: boolean;
+  /** Test seam for a shorter positive deadline. The session still cannot exceed 120 seconds. */
   timeoutMs?: number;
   storageState?: string;
 }
