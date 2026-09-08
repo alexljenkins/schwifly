@@ -1,10 +1,12 @@
+import { test } from '@playwright/test';
+import { tsImport } from 'tsx/esm/api';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
-import { redact } from './secrets';
-import { writeProofRecord } from './proofLogs';
-import type { LoadedStory, ProofClause, ProofPolarity, StoryContract } from './story';
+import { redact } from './secrets.js';
+import { writeProofRecord } from './proofLogs.js';
+import type { LoadedStory, ProofClause, ProofPolarity, StoryContract } from './story.js';
 
 export type JsonValue =
   | null
@@ -38,8 +40,19 @@ export interface ProofAdapter<Input extends JsonValue = JsonValue> {
 
 export type ProofRegistry = Record<string, ProofAdapter<JsonValue>>;
 
+export interface SetupContext extends ProofContext {
+  url: string;
+  phase: 'discovery' | 'replay' | 'repair';
+  story?: StoryContract;
+}
+
 export interface SchwiflyConfig {
   proofs?: ProofRegistry;
+  setup?: (context: SetupContext) => Promise<void>;
+  session?: {
+    storageState: string;
+    check(context: SetupContext): Promise<boolean>;
+  };
 }
 
 export interface ProofRecord {
@@ -223,11 +236,19 @@ export const builtInProofs: ProofRegistry = {
   }) as ProofAdapter<JsonValue>,
 };
 
-export async function loadProofRegistry(root = process.cwd()): Promise<ProofRegistry> {
+export async function loadConfig(root = process.cwd()): Promise<SchwiflyConfig> {
   const configFile = resolve(root, 'schwifly.config.ts');
-  if (!existsSync(configFile)) return { ...builtInProofs };
-  const imported = await import(`${pathToFileURL(configFile).href}?schwifly=${Date.now()}`) as { default?: SchwiflyConfig };
-  const custom = imported.default?.proofs ?? {};
+  if (!existsSync(configFile)) return {};
+  const url = `${pathToFileURL(configFile).href}?schwifly=${Date.now()}`;
+  let inTest = false;
+  try { test.info(); inTest = true; } catch { /* The public API also runs outside Playwright. */ }
+  // Playwright owns TypeScript loading in tests. Installing a second loader conflicts with it.
+  const imported = await (inTest ? import(url) : tsImport(url, import.meta.url)) as { default?: SchwiflyConfig };
+  return imported.default ?? {};
+}
+
+export async function loadProofRegistry(root = process.cwd()): Promise<ProofRegistry> {
+  const custom = (await loadConfig(root)).proofs ?? {};
   for (const [name, adapter] of Object.entries(custom)) {
     if (!adapter || typeof adapter.parse !== 'function' || typeof adapter.describe !== 'function' || typeof adapter.arm !== 'function') {
       throw new ProofValidationError([`schwifly.config.ts proofs.${name} must be a proof adapter`]);

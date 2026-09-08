@@ -1,5 +1,5 @@
-import type { Action } from './workflow';
-import { ACTION_VERBS, inferRole } from './heal';
+import type { Action } from './workflow.js';
+import { ACTION_VERBS, inferRole } from './heal.js';
 
 // PURE, KEY-FREE story parser: plain English (+ inline <validate>) -> {steps, assertions}.
 // No browser, no LLM -> offline-verifiable. generate.ts later discovers a real locator per

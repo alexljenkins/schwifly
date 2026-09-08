@@ -7,19 +7,47 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "schwifly": "tsx src/cli.ts",
-    "verify": "playwright test tests/",
-    "typecheck": "tsc --noEmit"
+    "verify": "pnpm run build && playwright test tests/",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "verify:package": "node scripts/check-package.mjs"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "3.7.1",
     "@playwright/test": "1.61.1",
     "picocolors": "^1.1.1",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
-  "packageManager": "pnpm@11.5.3"
+  "packageManager": "pnpm@11.5.3",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "bin": {
+    "schwifly": "./bin/schwifly.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "examples/",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  }
 }

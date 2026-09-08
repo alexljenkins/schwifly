@@ -1,0 +1,37 @@
+name: Verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run typecheck
+      - run: pnpm run verify --workers=1
+      - run: pnpm run verify:package
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: schwifly-evidence
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .schwifly/results/
+            .schwifly/evidence/
+            .schwifly/repair-diffs/
+            artifacts/consumer/
+            artifacts/package-check.json

@@ -1,9 +1,10 @@
+import { captureFailure } from './evidence.js';
 import { type Page, type Locator, expect } from '@playwright/test';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { q } from './emit';
-import { redact } from './secrets';
-import { HEAL_LOG, STEP_LOG, workerLogPath } from './runLogs';
+import { q } from './emit.js';
+import { redact } from './secrets.js';
+import { HEAL_LOG, STEP_LOG, workerLogPath } from './runLogs.js';
 
 // A Workflow is a real Playwright .spec.ts. Each step is deterministic-first: it tries a
 // concrete locator, and ONLY if that fails does the AI resolver kick in to find the element
@@ -27,6 +28,8 @@ export interface Resolver {
 export type StepStatus = 'ok' | 'healed' | 'failed';
 
 export interface StepResult {
+  action?: Action;
+  value?: string;
   intent: string;
   status: StepStatus;
   usedLocator: string;
@@ -82,8 +85,9 @@ function appendNdjson(path: string, rec: unknown): void {
 
 export async function step(page: Page, spec: StepSpec, opts: StepOptions = {}): Promise<StepResult> {
   const timeout = opts.timeout ?? 5000;
-  const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file });
-  appendNdjson(opts.stepLog ?? workerLogPath(STEP_LOG), result);
+  const result = redact({ ...await runStep(page, spec, opts, timeout), file: opts.file, action: spec.action ?? 'click', ...(spec.value === undefined ? {} : { value: spec.value }) });
+  if (result.status === 'failed') await captureFailure(page);
+  appendNdjson(opts.stepLog ?? workerLogPath(process.env.SCHWIFLY_STEP_LOG ?? STEP_LOG), result);
   return result;
 }
 
@@ -111,7 +115,7 @@ async function runStep(page: Page, spec: StepSpec, opts: StepOptions, timeout: n
     }
     try {
       await act(page.locator(healed), spec, timeout);
-      appendNdjson(opts.healLog ?? workerLogPath(HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
+      appendNdjson(opts.healLog ?? workerLogPath(process.env.SCHWIFLY_HEAL_LOG ?? HEAL_LOG), { file: opts.file, original: spec.locator, healed, intent: spec.intent } satisfies HealRecord);
       return { intent: spec.intent, status: 'healed', usedLocator: healed, healedFrom: spec.locator };
     } catch (err2) {
       return { intent: spec.intent, status: 'failed', usedLocator: healed, error: redact(String(err2)) };

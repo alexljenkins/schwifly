@@ -1,14 +1,14 @@
-import { llmConfigFromEnv } from './llm';
-import { applyIntentLabels, needsIntentLabel } from './record';
-import { openSharedSession } from './sharedCdp';
-import type { EmitStep } from './emit';
+import { hasModelKey } from './llm.js';
+import { applyIntentLabels, needsIntentLabel } from './record.js';
+import { openSharedSession } from './sharedCdp.js';
+import type { EmitStep } from './emit.js';
 
 // Optional author-time fallback for opaque CSS/test-id locators. The pure recorder transform runs
 // first and always wins when codegen carried a real role/name/label. Only missing human labels
 // reach this one key-gated call; saved workflows remain deterministic and agent-free at runtime.
 export async function labelRecordedIntents(steps: EmitStep[]): Promise<EmitStep[]> {
   const missing = steps.filter(needsIntentLabel);
-  if (!missing.length || !llmConfigFromEnv()) return steps;
+  if (!missing.length || !hasModelKey()) return steps;
 
   const facts = missing.map((step) => ({
     action: step.action ?? 'click',

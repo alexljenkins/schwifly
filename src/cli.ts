@@ -1,18 +1,19 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { loadStory } from './story.js';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyHeal, type HealRecord, type StepResult } from './workflow';
+import { applyHeal, type HealRecord, type StepResult } from './workflow.js';
 import {
   buildVerdicts,
   renderVerdicts,
   exitCode,
   successfulHeals,
   type PwReport,
-} from './report';
-import { clearRunLogs, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs';
-import { runPlaywright } from './playwrightProcess';
-import { redact } from './secrets';
-import { PROOF_LOG } from './proofLogs';
-import type { ProofRecord } from './proofs';
+} from './report.js';
+import { clearRunLogs, HEAL_LOG, readRunLogs, STEP_LOG } from './runLogs.js';
+import { runPlaywright } from './playwrightProcess.js';
+import { redact } from './secrets.js';
+import { PROOF_LOG } from './proofLogs.js';
+import type { ProofRecord } from './proofs.js';
 
 // schwifly run [path] [playwright options]
 //   run deterministic workflows, report four-state verdicts, then write back only heals from a
@@ -29,12 +30,14 @@ import type { ProofRecord } from './proofs';
 //   open Playwright codegen, record one human-driven flow, then emit the same healable template.
 const REPORT = '.schwifly/last-run.json';
 const USAGE =
-  'usage:\n  schwifly run [path]\n' +
+  'usage (all commands accept --root <directory>):\n  schwifly init\n  schwifly run [path]\n' +
+  '  schwifly install-browser [--with-deps]\n' +
+  '  schwifly suite [stories-directory] [--id <id,id>] [--json]\n' +
   '  schwifly gen "<story>" --url <start> [--out workflows/<name>.spec.ts]\n' +
   '  schwifly attempt "<ticket>" --url <start> [--out workflows/<name>.spec.ts] [--visible]\n' +
   '  schwifly attempt stories/<name>.story.yaml [--visible]\n' +
   '  schwifly rebuild stories/<name>.story.yaml [--visible]\n' +
-  '  schwifly record <url> [--out workflows/<name>.spec.ts]';
+  '  schwifly record <url> [--from <codegen.ts>] [--out workflows/<name>.spec.ts]';
 
 interface CommandInput {
   positionals: string[];
@@ -99,8 +102,7 @@ function webUrl(value: string): string {
   return value;
 }
 
-// The emitted imports are intentionally `../src/...`, so only a direct child of workflows/ is a
-// runnable output today. Enforcing that shape also prevents path traversal and code overwrite.
+// Limit CLI-generated outputs to workflows to prevent path traversal and code overwrite.
 function workflowOutput(requested: string): string {
   const absolute = resolve(requested);
   const rel = relative(process.cwd(), absolute).replaceAll(sep, '/');
@@ -130,10 +132,70 @@ function insideWorkspace(file: string | undefined): file is string {
   }
 }
 
+function workflowFiles(path: string): string[] {
+  if (!existsSync(path)) return [];
+  if (statSync(path).isFile()) return path.endsWith('.spec.ts') ? [path] : [];
+  return readdirSync(path, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? workflowFiles(join(path, entry.name))
+      : entry.isFile() && entry.name.endsWith('.spec.ts') ? [join(path, entry.name)] : []).sort();
+}
+
+const STORY_MARKER = /^\/\/ Schwifly story:(.*)$/m;
+
+function hasStoryMarker(file: string): boolean {
+  try { return STORY_MARKER.test(readFileSync(file, 'utf8')); }
+  catch { return true; } // An unreadable file is never eligible for legacy write-back.
+}
+
+function storyForWorkflow(file: string): string | undefined {
+  const match = STORY_MARKER.exec(readFileSync(file, 'utf8'));
+  if (!match) return undefined;
+  const story: unknown = JSON.parse(match[1]);
+  if (typeof story !== 'string' || !story.endsWith('.story.yaml')) throw new Error('invalid story marker in workflow');
+  const loaded = loadStory(story);
+  if (loaded.routeFile !== resolve(file)) throw new Error('workflow story marker does not match its authoritative route');
+  return loaded.file;
+}
+
 async function runWorkflows(args: string[]): Promise<number> {
+  if (args[0]?.endsWith('.story.yaml')) {
+    const input = parseCommand(args, [], ['json']);
+    if (input.positionals.length !== 1) throw new Error('run needs exactly one story file');
+    const { runStory } = await import('./storyAttempt.js');
+    const result = await runStory({ file: input.positionals[0] });
+    if (input.flags.json) console.log(JSON.stringify(result.report));
+    else reportStoryCommand('run', result);
+    return result.ok ? 0 : 1;
+  }
   const hasTarget = args[0] !== undefined && !args[0].startsWith('-');
   const target = hasTarget ? args[0] : 'workflows/';
   const playwrightArgs = hasTarget ? args.slice(1) : args;
+  const files = workflowFiles(resolve(target));
+  const backed = files.map(file => {
+    try { return { file, story: storyForWorkflow(file) }; }
+    catch (error) { return { file, error }; }
+  });
+  if (backed.some(item => item.story || item.error)) {
+    if (playwrightArgs.some(arg => arg !== '--workers=1' && arg !== '--json')) {
+      throw new Error('story-backed runs accept --json and --workers=1; use suite for story selection');
+    }
+    if (files.length > 1 && playwrightArgs.includes('--json')) throw new Error('use schwifly suite --json for aggregate results');
+    let failed = false;
+    for (const item of backed) {
+      if (item.error) {
+        const { reportOperation } = await import('./result.js');
+        const result = await reportOperation({ file: item.file }, async () => { throw item.error; });
+        if (playwrightArgs.includes('--json')) console.log(JSON.stringify(result.report));
+        else reportStoryCommand('run', result);
+        failed = true;
+        continue;
+      }
+      const code = await runWorkflows([item.story ?? item.file, ...playwrightArgs.filter(arg => arg !== '--workers=1')]);
+      failed ||= code !== 0;
+      if (process.exitCode === 1) break;
+    }
+    return failed ? 1 : 0;
+  }
 
   // No stale evidence may survive into this verdict.
   clearRunLogs(HEAL_LOG);
@@ -141,7 +203,7 @@ async function runWorkflows(args: string[]): Promise<number> {
   clearRunLogs(PROOF_LOG);
   rmSync(REPORT, { force: true });
 
-  const runner = runPlaywright(['test', target, ...playwrightArgs], { stdio: 'inherit' });
+  const runner = await runPlaywright(['test', target, ...playwrightArgs], { stdio: 'inherit' });
   const report: PwReport = existsSync(REPORT)
     ? JSON.parse(readFileSync(REPORT, 'utf8')) as PwReport
     : { suites: [], errors: [] };
@@ -169,7 +231,7 @@ async function runWorkflows(args: string[]): Promise<number> {
     (runner.status === 0 || (runner.status !== null && hasReportedFailure)) &&
     !(report.errors?.length);
   const eligible = evidenceComplete ? successfulHeals(verdicts) : [];
-  const safe = eligible.filter((heal) => insideWorkspace(heal.file));
+  const safe = eligible.filter((heal) => insideWorkspace(heal.file) && !hasStoryMarker(heal.file));
   let updated = 0;
   for (const heal of safe) if (applyHeal(heal)) updated++;
   if (heals.length) {
@@ -195,12 +257,12 @@ async function gen(argv: string[]): Promise<number> {
   const title = stringFlag(input, 'title') ?? 'generated workflow';
   const out = workflowOutput(stringFlag(input, 'out') ?? `workflows/${slugify(title)}.spec.ts`);
 
-  const { llmConfigFromEnv } = await import('./llm');
-  if (!llmConfigFromEnv()) {
-    console.error('schwifly gen needs an LLM key (e.g. GEMINI_API_KEY) to discover locators live.');
+  const { hasModelKey } = await import('./llm.js');
+  if (!hasModelKey()) {
+    console.error('schwifly gen needs an LLM key (OPENROUTER_API_KEY) to discover locators live.');
     return 1;
   }
-  const { generate } = await import('./generate');
+  const { generate } = await import('./generate.js');
   const spec = await generate({ title, story, url });
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, spec, { flag: 'wx' });
@@ -209,17 +271,19 @@ async function gen(argv: string[]): Promise<number> {
 }
 
 async function attempt(argv: string[]): Promise<number> {
-  const input = parseCommand(argv, ['url', 'out', 'title'], ['visible']);
+  const input = parseCommand(argv, ['url', 'out', 'title'], ['visible', 'json']);
   const ticket = input.positionals[0];
   if (input.positionals.length === 1 && ticket?.endsWith('.story.yaml')) {
     if (input.flags.url || input.flags.out || input.flags.title) {
       console.error('schwifly attempt: a story file owns its URL, title, and route; remove --url, --title, and --out.');
       return 1;
     }
-    const { attemptStory } = await import('./storyAttempt');
+    const { attemptStory } = await import('./storyAttempt.js');
     const result = await attemptStory({ file: ticket, visible: input.flags.visible === true });
+    if (input.flags.json) { console.log(JSON.stringify(result.report)); return result.ok ? 0 : 1; }
     return reportStoryCommand('attempt', result);
   }
+  if (input.flags.json) throw new Error('--json requires a .story.yaml file');
   const rawUrl = stringFlag(input, 'url');
   if (input.positionals.length !== 1 || !ticket || !rawUrl) {
     console.log(
@@ -232,12 +296,12 @@ async function attempt(argv: string[]): Promise<number> {
   const title = redact(stringFlag(input, 'title') ?? ticket.slice(0, 60));
   const out = workflowOutput(stringFlag(input, 'out') ?? `workflows/${slugify(title)}.spec.ts`);
 
-  const { llmConfigFromEnv } = await import('./llm');
-  if (!llmConfigFromEnv()) {
-    console.error('schwifly attempt needs an LLM key (e.g. GEMINI_API_KEY) to run the agent attempt.');
+  const { hasModelKey } = await import('./llm.js');
+  if (!hasModelKey()) {
+    console.error('schwifly attempt needs an LLM key (OPENROUTER_API_KEY) to run the agent attempt.');
     return 1;
   }
-  const { attemptFlow } = await import('./attempt');
+  const { attemptFlow } = await import('./attempt.js');
   const res = await attemptFlow({ ticket, url, title, out, visible: input.flags.visible === true });
   if (res.contract) {
     console.log(`schwifly attempt: outcome contract (${res.contract.source}): ${res.contract.summary}`);
@@ -251,7 +315,8 @@ async function attempt(argv: string[]): Promise<number> {
   return 0;
 }
 
-function reportStoryCommand(command: 'attempt' | 'rebuild', result: import('./storyAttempt').StoryCommandResult): number {
+function reportStoryCommand(command: 'attempt' | 'rebuild' | 'run', result: import('./storyAttempt.js').StoryCommandResult): number {
+  if (result.resultPath) console.log(`result: ${result.resultPath}`);
   if (!result.ok) {
     console.error(`schwifly ${command}: FAILED: ${result.reason}`);
     if (result.certification?.routeFailures.length) {
@@ -264,24 +329,27 @@ function reportStoryCommand(command: 'attempt' | 'rebuild', result: import('./st
     }
     return 1;
   }
-  if (result.unchanged) console.log(`schwifly ${command}: route is already green; preserved ${result.saved}`);
+  if (command === 'run') console.log(`schwifly run: certified ${result.saved}`);
+  else if (result.unchanged) console.log(`schwifly ${command}: route is already green; preserved ${result.saved}`);
   else console.log(`schwifly ${command}: certified route written to ${result.saved}`);
   return 0;
 }
 
 async function rebuild(argv: string[]): Promise<number> {
-  const input = parseCommand(argv, [], ['visible']);
+  const input = parseCommand(argv, [], ['visible', 'json']);
   const file = input.positionals[0];
   if (input.positionals.length !== 1 || !file?.endsWith('.story.yaml')) {
     console.log('usage: schwifly rebuild stories/<name>.story.yaml [--visible]');
     return 1;
   }
-  const { rebuildStory } = await import('./storyAttempt');
-  return reportStoryCommand('rebuild', await rebuildStory({ file, visible: input.flags.visible === true }));
+  const { rebuildStory } = await import('./storyAttempt.js');
+  const result = await rebuildStory({ file, visible: input.flags.visible === true });
+  if (input.flags.json) { console.log(JSON.stringify(result.report)); return result.ok ? 0 : 1; }
+  return reportStoryCommand('rebuild', result);
 }
 
 async function record(argv: string[]): Promise<number> {
-  const input = parseCommand(argv, ['out']);
+  const input = parseCommand(argv, ['out', 'from']);
   const rawUrl = input.positionals[0];
   if (input.positionals.length !== 1 || !rawUrl) {
     console.log('usage: schwifly record <url> [--out workflows/<name>.spec.ts]');
@@ -296,29 +364,33 @@ async function record(argv: string[]): Promise<number> {
   const tempDir = mkdtempSync(join('.schwifly', 'record-'));
   const capture = join(tempDir, 'codegen.spec.ts');
   try {
-    console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
-    const runner = runPlaywright(
-      ['codegen', '--target', 'playwright-test', '-o', capture, url],
-      { stdio: 'inherit' },
-    );
-    if (runner.error) throw runner.error;
-    if (runner.status !== 0) {
-      console.error(`schwifly record: Playwright codegen exited ${runner.status ?? runner.signal}.`);
-      return 1;
+    const from = stringFlag(input, 'from');
+    if (from) writeFileSync(capture, readFileSync(resolve(from), 'utf8'));
+    else {
+      console.log('schwifly record: complete the flow in the Playwright browser, then close it.');
+      const runner = await runPlaywright(
+        ['codegen', '--target', 'playwright-test', '-o', capture, url],
+        { stdio: 'inherit' },
+      );
+      if (runner.error) throw runner.error;
+      if (runner.status !== 0) {
+        console.error(`schwifly record: Playwright codegen exited ${runner.status ?? runner.signal}.`);
+        return 1;
+      }
     }
     if (!existsSync(capture) || !readFileSync(capture, 'utf8').trim()) {
       console.error('schwifly record: no browser actions were recorded.');
       return 1;
     }
 
-    const { needsIntentLabel, parseCodegen } = await import('./record');
+    const { needsIntentLabel, parseCodegen } = await import('./record.js');
     let steps = parseCodegen(readFileSync(capture, 'utf8'));
     const opaque = steps.filter(needsIntentLabel).length;
     if (opaque) {
-      const { llmConfigFromEnv } = await import('./llm');
-      if (llmConfigFromEnv()) {
+      const { hasModelKey } = await import('./llm.js');
+      if (hasModelKey()) {
         try {
-          const { labelRecordedIntents } = await import('./recordLabel');
+          const { labelRecordedIntents } = await import('./recordLabel.js');
           steps = await labelRecordedIntents(steps);
         } catch (error) {
           console.warn(`schwifly record: optional intent labeling failed: ${redact(String(error))}`);
@@ -326,7 +398,7 @@ async function record(argv: string[]): Promise<number> {
       }
     }
 
-    const { emit } = await import('./emit');
+    const { emit } = await import('./emit.js');
     const source = emit({ title, url, steps, assertions: [] });
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, source, { flag: 'wx' });
@@ -338,11 +410,44 @@ async function record(argv: string[]): Promise<number> {
 }
 
 async function main(): Promise<number> {
+  const args = process.argv.slice(2);
+  const rootIndex = args.indexOf('--root');
+  if (rootIndex !== -1) {
+    const root = args[rootIndex + 1];
+    if (!root || root.startsWith('--')) throw new Error('--root needs a directory');
+    process.chdir(resolve(root));
+    args.splice(rootIndex, 2);
+  }
+  process.env.SCHWIFLY_ROOT = process.cwd();
   // Auto-load the ignored local env once. Callers never need to put keys on the command line.
   if (existsSync('.env')) process.loadEnvFile('.env');
 
-  const args = process.argv.slice(2);
   const cmd = args[0];
+  if (cmd === 'install-browser') {
+    const input = parseCommand(args.slice(1), [], ['with-deps']);
+    if (input.positionals.length) throw new Error('install-browser accepts only --with-deps');
+    const result = await runPlaywright(['install', 'chromium', ...(input.flags['with-deps'] ? ['--with-deps'] : [])], { stdio: 'inherit' });
+    return result.status === 0 ? 0 : 1;
+  }
+  if (cmd === 'init') {
+    const { initialize } = await import('./init.js');
+    initialize(parseCommand(args.slice(1), []).positionals);
+    return 0;
+  }
+  if (args.includes('--help')) { console.log(USAGE); return 0; }
+  if (cmd === 'suite') {
+    const input = parseCommand(args.slice(1), ['id'], ['json']);
+    if (input.positionals.length > 1) throw new Error('suite accepts one story directory');
+    const { runSuite } = await import('./suite.js');
+    const result = await runSuite({ directory: input.positionals[0], ids: stringFlag(input, 'id')?.split(',') });
+    if (input.flags.json) console.log(JSON.stringify(result));
+    else {
+      console.log(`stories[${result.results.length}]{id,status,phase}:`);
+      for (const story of result.results) console.log(`  ${JSON.stringify(story.storyId)},${story.status},${story.phase}`);
+      console.log(`result: ${result.resultPath}`);
+    }
+    return result.ok ? 0 : 1;
+  }
   if (cmd === 'gen') return gen(args.slice(1));
   if (cmd === 'attempt') return attempt(args.slice(1));
   if (cmd === 'rebuild') return rebuild(args.slice(1));

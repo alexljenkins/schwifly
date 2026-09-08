@@ -1,0 +1,43 @@
+name: Story checks
+on: [pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: stories-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  stories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec schwifly install-browser --with-deps
+      # Replace this with the consumer's app startup and readiness check.
+      - run: |
+          node server.mjs > /tmp/schwifly-app.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail http://127.0.0.1:4173/app; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      # For authenticated apps, capture login with the app's script before this step.
+      - run: pnpm exec schwifly suite stories --json
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SCHWIFLY_MODEL: google/gemini-3.8-flash
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: story-evidence
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .schwifly/results/
+            .schwifly/evidence/
+            .schwifly/certifications/**/*.png
+            .schwifly/repair-diffs/

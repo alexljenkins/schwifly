@@ -89,3 +89,9 @@ test('credentials reads the env contract with safe defaults', () => {
     Object.assign(process.env, saved);
   }
 });
+
+test('saved login state registers credentials without swallowing preferences', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const child = spawnSync(process.execPath, ['--import', 'tsx', 'tests/fixtures/secretRegistration.ts'], { encoding: 'utf8' });
+  expect(child.status, child.stdout + child.stderr).toBe(0);
+});

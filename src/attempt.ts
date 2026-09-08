@@ -1,28 +1,30 @@
+import { captureFailure } from './evidence.js';
+import { bounded, discoverySteps, MAX_DISCOVERY_STEPS } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
-import { emit, type EmitAssertion, type EmitStep } from './emit';
-import { stableSelector } from './generate';
-import { openSharedSession } from './sharedCdp';
-import { redact } from './secrets';
-import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs';
-import type { StepResult } from './workflow';
-import type { LoadedStory } from './story';
+import { emit, type EmitAssertion, type EmitStep } from './emit.js';
+import { stableSelector } from './generate.js';
+import { openConfiguredSession } from './session.js';
+import { redact } from './secrets.js';
+import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
+import type { StepResult } from './workflow.js';
+import type { LoadedStory } from './story.js';
 import {
   proofDescriptions,
   runProofs,
   type ProofRecord,
   type ValidatedProof,
-} from './proofs';
-import { runPlaywright } from './playwrightProcess';
+} from './proofs.js';
+import { runPlaywright } from './playwrightProcess.js';
 import {
   contractFromTicket,
   normalizeActions,
   proposedContract,
   type CapturedAction,
   type OutcomeContract,
-} from './capture';
+} from './capture.js';
 
 // task-to-verified-flow: an arbitrary ticket becomes a BOUNDED agent attempt, whose useful
 // observed actions become a deterministic .spec.ts, which is then replayed agent-free and saved
@@ -86,13 +88,14 @@ export interface StoryDiscoveryRequest {
 }
 
 export interface StoryDiscovery {
+  artifacts?: string[];
   actions: CapturedAction[];
   proofs: ProofRecord[];
   notes: string;
 }
 
 // Small fixed defaults. A bounded attempt is a locked constraint, not a knob.
-export const MAX_STEPS = 12;
+export const MAX_STEPS = MAX_DISCOVERY_STEPS;
 const DEBUG = process.env.SCHWIFLY_DEBUG === '1';
 // Candidates live in their own depth-1 dir: '../src/...' imports resolve, the `candidate`
 // Playwright project can find them, and `schwifly run workflows/` never picks one up.
@@ -105,7 +108,7 @@ function candidatePath(): string {
  * Every failure path returns ok:false and leaves no workflow behind.
  */
 export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> {
-  const maxSteps = opts.maxSteps ?? MAX_STEPS;
+  const maxSteps = discoverySteps(opts.maxSteps);
   const visible = opts.visible ?? false;
 
   // Discovery can spend money and mutate the remote app. Refuse a destructive local write first.
@@ -183,7 +186,7 @@ function write(file: string, source: string, exclusive = false): void {
 // every step failed still exits 0. GREEN means the step log says every step ran ok.
 async function replayAgentFree(file: string): Promise<boolean> {
   clearRunLogs(STEP_LOG);
-  const r = runPlaywright(['test', file, '--reporter=line'], {
+  const r = await runPlaywright(['test', file, '--reporter=line'], {
     stdio: 'inherit',
     env: { ...process.env, SCHWIFLY_NO_HEAL: '1' },
   });
@@ -213,7 +216,7 @@ export function replayGreen(exitCode: number, results: StepResult[]): boolean {
 // FRONT against the start page. It must land on deterministic page assertions; this proposal is
 // the ONLY judgement call, and it happens before the attempt, never at replay time.
 async function proposeContractLive(ticket: string, url: string, visible: boolean): Promise<OutcomeContract | null> {
-  const session = await openSharedSession({ headed: visible });
+  const session = await openConfiguredSession({ url, phase: 'discovery', headed: visible });
   try {
     await session.page.goto(url);
     const answer = await session.stagehand.extract(
@@ -267,8 +270,9 @@ export async function liveDiscoverStory(req: StoryDiscoveryRequest): Promise<Sto
       },
     });
     if (proofRun.routeError) throw proofRun.routeError;
-    return { proofs: proofRun.records, notes };
-  });
+    const artifact = proofRun.records.some(proof => proof.status !== 'pass') ? await captureFailure(page, req.loaded.root) : undefined;
+    return { proofs: proofRun.records, notes, artifacts: artifact ? [artifact] : [] };
+  }, () => openConfiguredSession({ root: req.loaded.root, url: story.start.url, story, phase: 'discovery', evidence: true, headed: req.visible }));
   return { actions: captured.actions, ...captured.value };
 }
 
@@ -277,14 +281,15 @@ async function captureLive<T>(
   maxSteps: number,
   visible: boolean,
   run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
+  open = () => openConfiguredSession({ url, phase: 'discovery', evidence: true, headed: visible }),
 ): Promise<{ actions: CapturedAction[]; value: T }> {
-  const session = await openSharedSession({ evidence: true, headed: visible });
+  const session = await open();
+  const actions: CapturedAction[] = [];
   try {
     const { page, stagehand } = session;
     await guardOrigin(page, url);
     await page.goto(url);
 
-    const actions: CapturedAction[] = [];
     let pending: CapturedAction[] = [];
     // Stagehand wraps tool results in an AI SDK envelope: the native return value (and with it
     // the real Playwright selector) lives at result.output, not result.
@@ -321,15 +326,20 @@ async function captureLive<T>(
     };
 
     const execute = async (instruction: string): Promise<string> => {
-      const result = await stagehand.agent({ mode: 'dom' }).execute({
+      const result = await bounded(stagehand.agent({ mode: 'dom' }).execute({
         instruction,
-        maxSteps,
+        maxSteps: discoverySteps(maxSteps),
+        signal: session.signal,
         page: page as never,
         callbacks: { onEvidence } as never,
-      });
+      }), session.signal);
+      if (session.providerFailure) throw session.providerFailure;
+      if (DEBUG) console.error(`[attempt:result] ${redact(String(result?.message ?? ''))}`);
       return redact(String(result?.message ?? ''));
     };
     return { actions, value: await run(page, execute) };
+  } catch (cause) {
+    throw Object.assign(new Error(redact(String(cause)), { cause }), { name: 'ExplorationError', actions: redact(actions) });
   } finally {
     await session.close();
   }

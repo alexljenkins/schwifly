@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { isAlias, parseDocument, visit } from 'yaml';
-import type { JsonValue } from './proofs';
+import type { JsonValue } from './proofs.js';
 
 export type ProofPolarity = 'must' | 'mustNot';
 

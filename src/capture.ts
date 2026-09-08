@@ -1,5 +1,5 @@
-import type { EmitStep } from './emit';
-import { redact } from './secrets';
+import type { EmitStep } from './emit.js';
+import { redact } from './secrets.js';
 
 // PURE, KEY-FREE capture normalizer: browser facts observed during an agent attempt ->
 // deterministic StepSpec-shaped steps, plus the outcome contract parsed out of the ticket.

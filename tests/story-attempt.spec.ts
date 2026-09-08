@@ -84,7 +84,7 @@ test('a green story discovery and replay save a generated route without changing
     const source = readFileSync(item.route, 'utf8');
     expect(source).toContain('// Story add-item: Add an item');
     expect(source).toContain('// This route is generated and replaceable.');
-    expect(source).toContain('loadStory(storyFile)');
+    expect(source).toContain('loadStory(storyFile, process.env.SCHWIFLY_ROOT');
     expect(source).not.toContain('exact: http://127.0.0.1');
     expect(source).not.toContain('The agent says');
   } finally {
@@ -130,7 +130,9 @@ test('unknown adapters and invalid inputs fail before discovery', async () => {
   for (const item of [fixture({ use: 'missing.proof' }), fixture({ input: 'exact: one\n        contains: two' })]) {
     let discovered = false;
     try {
-      await expect(attemptStory({ file: item.file, root: repo, discover: async (request) => { discovered = true; return discovery()(request); } })).rejects.toThrow(/invalid proofs/);
+      const result = await attemptStory({ file: item.file, root: repo, discover: async (request) => { discovered = true; return discovery()(request); } });
+      expect(result.report?.failure?.kind).toBe('invalid_contract');
+      expect(result.reason).toContain('invalid proofs');
       expect(discovered).toBe(false);
     } finally {
       rmSync(item.dir, { recursive: true, force: true });

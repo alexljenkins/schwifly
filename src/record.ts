@@ -1,6 +1,6 @@
-import { normalizeActions, type CapturedAction } from './capture';
-import type { EmitStep } from './emit';
-import type { StepSpec } from './workflow';
+import { normalizeActions, type CapturedAction } from './capture.js';
+import type { EmitStep } from './emit.js';
+import type { StepSpec } from './workflow.js';
 
 // PURE, KEY-FREE recorder transform: Playwright's public codegen output -> the same
 // StepSpec-shaped data consumed by emit(). It deliberately understands only operations the

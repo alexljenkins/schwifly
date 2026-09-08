@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +13,7 @@ function runCli(args: string[]): ReturnType<typeof spawnSync> {
   const cwd = mkdtempSync(join(base, 'cli-test-'));
   const env = { ...process.env };
   for (const key of [
+    'OPENROUTER_API_KEY',
     'GEMINI_API_KEY',
     'GOOGLE_API_KEY',
     'GOOGLE_GENERATIVE_AI_API_KEY',
@@ -127,4 +128,33 @@ test('rebuild requires one story file and rejects unrelated flags', () => {
   const option = runCli(['rebuild', 'stories/add.story.yaml', '--out', 'workflows/x.spec.ts']);
   expect(option.status).toBe(1);
   expect(output(option)).toContain('unknown option: --out');
+});
+
+test('an invalid story marker reports a contract failure and permits other workflows to run', () => {
+  const base = join(root, '.schwifly');
+  mkdirSync(base, { recursive: true });
+  const cwd = mkdtempSync(join(base, 'cli-markers-'));
+  const workflows = join(cwd, 'workflows');
+  mkdirSync(workflows);
+  const broken = join(workflows, 'broken.spec.ts');
+  const source = '// Schwifly story: "missing.story.yaml"\nthrow new Error("must not execute a broken story as legacy");\n';
+  writeFileSync(broken, source);
+  writeFileSync(join(workflows, 'legacy.spec.ts'), `import { test } from 'schwifly/test';
+import { writeFileSync } from 'node:fs';
+test('selected legacy workflow', () => { writeFileSync('executed.txt', 'yes'); });
+`);
+  const cli = (args: string[]) => spawnSync(tsx, [join(root, 'src', 'cli.ts'), '--root', cwd, ...args], { cwd: root, encoding: 'utf8' });
+  try {
+    for (const marker of ['"missing.story.yaml"', '{}', '']) {
+      writeFileSync(broken, source.replace('"missing.story.yaml"', marker));
+      const result = cli(['run', broken, '--json']);
+      expect(result.status, output(result)).toBe(1);
+      expect(JSON.parse(String(result.stdout)).failure.kind).toBe('invalid_contract');
+    }
+    writeFileSync(broken, source);
+    const directory = cli(['run', 'workflows/']);
+    expect(directory.status, output(directory)).toBe(1);
+    expect(existsSync(join(cwd, 'executed.txt')), output(directory)).toBe(true);
+    expect(readFileSync(broken, 'utf8')).toBe(source);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
 });

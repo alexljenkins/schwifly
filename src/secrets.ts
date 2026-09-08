@@ -25,7 +25,7 @@ export function credentials(): Credentials {
 
 // Keys whose VALUE is a secret. Substring match, case-insensitive (so `apiKey`, `API_KEY`,
 // `userPassword`, `auth_token` all hit). Ported from secrets.py's redacted_keys set.
-const SECRET_KEYS = ['password', 'api_key', 'apikey', 'token', 'secret'];
+const SECRET_KEYS = ['email', 'password', 'api_key', 'apikey', 'token', 'secret'];
 export const REDACTED = '***REDACTED***';
 
 function isSecretKey(key: string): boolean {
@@ -49,7 +49,36 @@ export function redact<T>(value: T): T {
   return value;
 }
 
+// Values carried by a saved login state. Registering every stored value would replace common
+// preferences (`dark`, `true`, `en-US`) everywhere redact() runs, which breaks generation and
+// corrupts evidence. Only credential-named entries and opaque tokens are registered.
+const CREDENTIAL_KEYS = ['auth', 'session', 'sess', 'token', 'secret', 'password', 'passwd', 'pwd',
+  'jwt', 'sid', 'csrf', 'xsrf', 'credential', 'api_key', 'apikey', 'bearer', 'login', 'email', 'account'];
+const BENIGN_VALUE = /^(?:true|false|null|undefined|none|auto|on|off|yes|no|light|dark|system|\d{1,7})$/i;
+const OPAQUE_TOKEN = /^[A-Za-z0-9_\-.+=~]{24,}$/;
+
+function isCredentialKey(key: string): boolean {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/);
+  return words.some(word => CREDENTIAL_KEYS.includes(word)) || /(?:^|_)api_key(?:_|$)/.test(words.join('_'));
+}
+
+// An opaque token has no spaces, no URL punctuation, and mixes letters with digits. A stored URL,
+// a JSON blob, or a sentence never qualifies; a cookie session token or a JWT does.
+function isOpaqueToken(value: string): boolean {
+  return OPAQUE_TOKEN.test(value) && /\d/.test(value) && /[A-Za-z]/.test(value);
+}
+
+const sessionSecrets = new Set<string>();
+export interface SecretEntry { key: string; value: string }
+export function registerSecrets(entries: SecretEntry[]): void {
+  for (const { key, value } of entries) {
+    if (typeof value !== 'string' || value.length < 4) continue;
+    if (isCredentialKey(key) || (!BENIGN_VALUE.test(value) && isOpaqueToken(value))) sessionSecrets.add(value);
+  }
+}
+
 // Scrub `key: value` / `key=value` pairs in free-form text (logs, error strings, CLI output).
+
 function redactString(text: string): string {
   let out = text;
   const secretValues = Object.entries(process.env)
@@ -58,7 +87,7 @@ function redactString(text: string): string {
     .filter(([key, value]) => value && value.length >= 4 && isSecretKey(key))
     .map(([, value]) => value as string)
     .sort((a, b) => b.length - a.length);
-  for (const value of secretValues) out = out.split(value).join(REDACTED);
+  for (const value of [...secretValues, ...sessionSecrets].sort((a, b) => b.length - a.length)) out = out.split(value).join(REDACTED);
   for (const key of SECRET_KEYS) {
     const re = new RegExp(`\\b${key}\\b\\s*[:=]\\s*['"]?([^'"\\s]+)['"]?`, 'gi');
     out = out.replace(re, `${key}: ${REDACTED}`);

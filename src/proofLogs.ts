@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { workerLogPath } from './runLogs';
-import type { ProofRecord } from './proofs';
+import { workerLogPath } from './runLogs.js';
+import type { ProofRecord } from './proofs.js';
 
 export const PROOF_LOG = '.schwifly/proofs.ndjson';
 

@@ -1,6 +1,6 @@
 import { createColors } from 'picocolors';
-import type { HealRecord, StepResult } from './workflow';
-import { redact } from './secrets';
+import type { HealRecord, StepResult } from './workflow.js';
+import { redact } from './secrets.js';
 
 // Decide color explicitly so NO_COLOR ALWAYS wins — picocolors' own auto-detect lets
 // FORCE_COLOR (which the Playwright worker sets) override NO_COLOR, which we must not allow.

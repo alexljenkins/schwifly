@@ -31,7 +31,7 @@ test('codegen text maps to plain-string StepSpecs', () => {
       intent: 'fill the Email address field',
       locator: 'internal:label="Email address"i',
       action: 'fill',
-      value: 'alex@example.com',
+      value: '***REDACTED***',
     },
     {
       intent: 'see the Delete text',
@@ -180,7 +180,7 @@ test('the emitted recorded file runs unmodified with every step green', async ({
     assertions: [],
   }));
   try {
-    const run = runPlaywright(
+    const run = await runPlaywright(
       ['test', candidate, '--project=candidate', '--workers=1'],
       {
         cwd: root,
@@ -220,7 +220,7 @@ test('an emitted popup workflow runs steps on both pages and switches back', asy
     assertions: [],
   }));
   try {
-    const run = runPlaywright(
+    const run = await runPlaywright(
       ['test', candidate, '--project=candidate', '--workers=1'],
       {
         cwd: root,

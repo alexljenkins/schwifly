@@ -24,7 +24,8 @@ const storageState = haveCreds || existsSync(theInternetState) ? theInternetStat
 
 export default defineConfig({
   testDir: '.',
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   reporter: [['list'], ['json', { outputFile: '.schwifly/last-run.json' }]],
   use: { trace: 'on-first-retry' },
   projects: [

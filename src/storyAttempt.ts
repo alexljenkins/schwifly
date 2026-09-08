@@ -1,3 +1,8 @@
+import { writeRepairDiff } from './repairDiff.js';
+import { applyHeal, type HealRecord } from './workflow.js';
+import { hasModelKey, ProviderError } from './llm.js';
+import { reportOperation, type FailureKind, type OperationState, type StoryReport } from './result.js';
+import { discoverySteps } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import {
   existsSync,
@@ -8,23 +13,35 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { liveDiscoverStory, MAX_STEPS, type StoryDiscovery, type StoryDiscoveryRequest } from './attempt';
-import { normalizeActions } from './capture';
-import { emitStory } from './emit';
-import { loadAndValidateProofs, type ProofRecord, type ValidatedProof } from './proofs';
-import { runPlaywright } from './playwrightProcess';
-import { readRunLogs } from './runLogs';
-import { redact } from './secrets';
-import { loadStory, type LoadedStory } from './story';
-import type { StepResult } from './workflow';
+import { liveDiscoverStory, type StoryDiscovery, type StoryDiscoveryRequest } from './attempt.js';
+import { normalizeActions } from './capture.js';
+import { emitStory } from './emit.js';
+import { loadAndValidateProofs, type ProofRecord, type ValidatedProof } from './proofs.js';
+import { runPlaywright } from './playwrightProcess.js';
+import { readRunLogs } from './runLogs.js';
+import type { RunnerFailure } from './failureLog.js';
+import { redact } from './secrets.js';
+import { loadStory, type LoadedStory } from './story.js';
+import type { StepResult } from './workflow.js';
 
 export interface CertificationResult {
   green: boolean;
+  cancelled?: boolean;
+  /** Structured session/provider failure reported by the child runner. Never an app defect. */
+  failure?: RunnerFailure;
+  heals?: HealRecord[];
   routeFailures: string[];
   proofFailures: string[];
+  steps?: StepResult[];
+  proofs?: ProofRecord[];
+  artifacts?: string[];
 }
 
 export interface StoryCommandResult {
+  report?: StoryReport;
+  resultPath?: string;
+  failureKind?: FailureKind;
+  recovery?: 'element' | 'route';
   ok: boolean;
   unchanged?: boolean;
   saved?: string;
@@ -40,6 +57,7 @@ export interface StoryAttemptOptions {
   maxSteps?: number;
   discover?: (request: StoryDiscoveryRequest) => Promise<StoryDiscovery>;
   replay?: (file: string, loaded: LoadedStory) => Promise<CertificationResult | boolean>;
+  repair?: (file: string, loaded: LoadedStory) => Promise<CertificationResult>;
 }
 
 function candidatePath(root: string): string {
@@ -90,29 +108,53 @@ export function certificationGreen(
 }
 
 function discoveryProofsGreen(records: ProofRecord[], expected: string[]): CertificationResult {
-  return certificationGreen(0, [{ intent: 'discovery route', status: 'ok', usedLocator: 'discovery' }], records, expected);
+  return { ...certificationGreen(0, [{ intent: 'discovery route', status: 'ok', usedLocator: 'discovery' }], records, expected), proofs: records };
 }
 
-export async function replayStoryRoute(file: string, loaded: LoadedStory): Promise<CertificationResult> {
+export async function replayStoryRoute(file: string, loaded: LoadedStory, options: { healing?: boolean } = {}): Promise<CertificationResult> {
   const evidenceDir = resolve(loaded.root, '.schwifly', 'certifications', `${process.pid}.${randomUUID()}`);
   const stepLog = resolve(evidenceDir, 'steps.ndjson');
   const proofLog = resolve(evidenceDir, 'proofs.ndjson');
-  const run = runPlaywright(['test', file, '--reporter=line'], {
-    stdio: 'inherit',
+  mkdirSync(evidenceDir, { recursive: true });
+  const artifactLog = resolve(evidenceDir, 'artifacts.ndjson');
+  const healLog = resolve(evidenceDir, 'heals.ndjson');
+  const failureLog = resolve(evidenceDir, 'failure.ndjson');
+  const run = await runPlaywright(['test', file, '--reporter=line'], {
+    encoding: 'utf8',
+    cwd: loaded.root,
     env: {
       ...process.env,
-      SCHWIFLY_NO_HEAL: '1',
+      SCHWIFLY_NO_HEAL: options.healing ? '0' : '1',
+      SCHWIFLY_STORY_FILE: loaded.file,
+      SCHWIFLY_HEAL_LOG: healLog,
       SCHWIFLY_STEP_LOG: stepLog,
       SCHWIFLY_PROOF_LOG: proofLog,
+      SCHWIFLY_ARTIFACT_LOG: artifactLog,
+      SCHWIFLY_FAILURE_LOG: failureLog,
     },
   });
   const steps = readRunLogs<StepResult>(stepLog).filter((record) => recordFileMatches(record, file));
   const proofs = readRunLogs<ProofRecord>(proofLog).filter(
     (record) => record.storyId === loaded.story.id && recordFileMatches(record, file),
   );
-  const result = certificationGreen(run.status ?? 1, steps, proofs, expectedClauses(loaded));
+  const gateSteps = options.healing ? steps.map(step => ({ ...step, status: step.status === 'healed' ? 'ok' as const : step.status })) : steps;
+  const result = certificationGreen(run.status ?? 1, gateSteps, proofs, expectedClauses(loaded));
+  const heals = readRunLogs<HealRecord>(healLog).filter(record => recordFileMatches(record, file));
+  // The child boundary reduces a session failure to a bare exit code. Its recorded reason names
+  // the real cause and keeps the caller from paying for a repair the app cannot fix.
+  const failure = readRunLogs<RunnerFailure>(failureLog)[0];
+  if (failure) {
+    result.green = false;
+    result.routeFailures.unshift(`${failure.kind}: ${failure.reason}`);
+  }
   if (result.green) rmSync(evidenceDir, { recursive: true, force: true });
-  return result;
+  const artifacts = readRunLogs<{ path: string }>(artifactLog).map(record => record.path);
+  if (!result.green) {
+    const runnerLog = resolve(evidenceDir, 'runner.txt');
+    writeFileSync(runnerLog, redact(run.stdout + run.stderr));
+    artifacts.push(runnerLog);
+  }
+  return { ...result, steps, proofs, heals, artifacts, cancelled: run.cancelled, ...(failure ? { failure } : {}) };
 }
 
 async function replay(
@@ -137,16 +179,13 @@ async function discover(
   loaded: LoadedStory,
   proofs: ValidatedProof[],
 ): Promise<StoryDiscovery> {
-  if (!options.discover) {
-    const { llmConfigFromEnv } = await import('./llm');
-    if (!llmConfigFromEnv()) {
-      throw new Error('story discovery needs an LLM key (e.g. GEMINI_API_KEY)');
-    }
+  if (!options.discover && !hasModelKey()) {
+    throw new ProviderError('story discovery needs an LLM key (OPENROUTER_API_KEY)');
   }
   return (options.discover ?? liveDiscoverStory)({
     loaded,
     proofs,
-    maxSteps: options.maxSteps ?? MAX_STEPS,
+    maxSteps: discoverySteps(options.maxSteps),
     visible: options.visible ?? false,
   });
 }
@@ -157,12 +196,20 @@ function writeCandidate(file: string, source: string): void {
 }
 
 export async function attemptStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, state => attemptStoryWork(options, state));
+}
+
+async function attemptStoryWork(options: StoryAttemptOptions, state: OperationState): Promise<StoryCommandResult> {
   const loaded = loadStory(options.file, options.root);
+  state.loaded = loaded;
   if (existsSync(loaded.routeFile)) {
     return { ok: false, reason: redact(`route already exists: ${display(loaded.root, loaded.routeFile)}`) };
   }
   const proofs = await loadAndValidateProofs(loaded);
+  state.phase = 'discovery';
   const found = await discover(options, loaded, proofs);
+  state.actions = found.actions;
+  state.artifacts.push(...found.artifacts ?? []);
   const discoveryGate = discoveryProofsGreen(found.proofs, expectedClauses(loaded));
   if (!discoveryGate.green) {
     return { ok: false, reason: proofFailureReason('discovery failed: ', discoveryGate), certification: discoveryGate };
@@ -172,6 +219,7 @@ export async function attemptStory(options: StoryAttemptOptions): Promise<StoryC
 
   const candidate = candidatePath(loaded.root);
   writeCandidate(candidate, emitStory({ loaded, steps, outputFile: candidate }));
+  state.phase = 'certification';
   const candidateGate = await replay(options.replay, candidate, loaded);
   if (!candidateGate.green) {
     return {
@@ -201,18 +249,40 @@ export async function attemptStory(options: StoryAttemptOptions): Promise<StoryC
 }
 
 export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, state => rebuildStoryWork(options, state));
+}
+
+async function rebuildStoryWork(options: StoryAttemptOptions, state: OperationState): Promise<StoryCommandResult> {
   const loaded = loadStory(options.file, options.root);
+  state.loaded = loaded;
   if (!existsSync(loaded.routeFile)) {
     return { ok: false, reason: `route does not exist: ${display(loaded.root, loaded.routeFile)}` };
   }
   const proofs = await loadAndValidateProofs(loaded);
+  state.phase = 'replay';
   const currentGate = await replay(options.replay, loaded.routeFile, loaded);
   if (currentGate.green) {
     return { ok: true, unchanged: true, saved: display(loaded.root, loaded.routeFile), certification: currentGate };
   }
 
+  if (currentGate.cancelled) return { ok: false, reason: 'rebuild cancelled; prior route preserved', certification: currentGate };
+  // A session, provider, or deadline failure breaks discovery too. Rediscovering would only
+  // repeat it, so the prior route is preserved and the real reason is reported.
+  if (currentGate.failure) {
+    return {
+      ok: false,
+      failureKind: currentGate.failure.kind,
+      saved: display(loaded.root, loaded.routeFile),
+      reason: proofFailureReason(`replay failed; preserved ${display(loaded.root, loaded.routeFile)}: `, currentGate),
+      certification: currentGate,
+    };
+  }
+  state.artifacts.push(...currentGate.artifacts ?? []);
   const original = readFileSync(loaded.routeFile, 'utf8');
+  state.phase = 'discovery';
   const found = await discover(options, loaded, proofs);
+  state.actions = found.actions;
+  state.artifacts.push(...found.artifacts ?? []);
   const discoveryGate = discoveryProofsGreen(found.proofs, expectedClauses(loaded));
   if (!discoveryGate.green) {
     return {
@@ -229,6 +299,7 @@ export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryC
 
   const candidate = candidatePath(loaded.root);
   writeCandidate(candidate, emitStory({ loaded, steps, outputFile: candidate }));
+  state.phase = 'certification';
   const candidateGate = await replay(options.replay, candidate, loaded);
   if (!candidateGate.green) {
     return {
@@ -269,4 +340,70 @@ export async function rebuildStory(options: StoryAttemptOptions): Promise<StoryC
   }
   rmSync(candidate, { force: true });
   return { ok: true, saved: display(loaded.root, loaded.routeFile), certification: candidateGate };
+}
+
+export async function runStory(options: StoryAttemptOptions): Promise<StoryCommandResult> {
+  return reportOperation(options, async state => {
+    const loaded = loadStory(options.file, options.root);
+    state.loaded = loaded;
+    await loadAndValidateProofs(loaded);
+    state.phase = 'replay';
+    if (!existsSync(loaded.routeFile)) return { ok: false, reason: 'route does not exist; run schwifly attempt first' };
+    const original = readFileSync(loaded.routeFile, 'utf8');
+    const initial = await replay(options.replay, loaded.routeFile, loaded);
+    const failed = (certification = initial): StoryCommandResult => ({ ok: false, saved: display(loaded.root, loaded.routeFile),
+      failureKind: certification.failure?.kind, certification,
+      reason: proofFailureReason(`${state.phase} failed; prior route preserved: `, certification) });
+    if (initial.green) return { ok: true, unchanged: true, saved: display(loaded.root, loaded.routeFile), certification: initial };
+    // Successful route actions plus failed proofs identify an outcome regression, not a locator
+    // defect. A recorded session failure is infrastructure, which no repair or rebuild can fix.
+    if (initial.cancelled || initial.failure || process.env.SCHWIFLY_NO_HEAL === '1' ||
+        (initial.steps?.length && initial.steps.every(step => step.status === 'ok'))) return failed();
+    state.phase = 'repair';
+    const repaired = await (options.repair ?? ((file, loaded) => replayStoryRoute(file, loaded, { healing: true })))(loaded.routeFile, loaded);
+    state.artifacts.push(...repaired.artifacts ?? []);
+    if (repaired.cancelled || repaired.failure) return failed(repaired);
+    if (repaired.green && repaired.heals?.length) {
+      const candidate = candidatePath(loaded.root);
+      try {
+        writeCandidate(candidate, original);
+        const applied = repaired.heals.every(heal => applyHeal({ ...heal, file: candidate }));
+        if (applied) {
+          state.phase = 'certification';
+          const certified = await replay(options.replay, candidate, loaded);
+          if (certified.cancelled || certified.failure) return failed(certified);
+          state.artifacts.push(...certified.artifacts ?? []);
+          if (certified.green) {
+            if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
+            const replacement = readFileSync(candidate, 'utf8');
+            const pending = `${loaded.routeFile}.replacement.${randomUUID()}`;
+            try {
+              writeFileSync(pending, replacement, { flag: 'wx' });
+              if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
+              renameSync(pending, loaded.routeFile);
+            } finally { rmSync(pending, { force: true }); }
+            state.artifacts.push(writeRepairDiff(loaded.root, display(loaded.root, loaded.routeFile), original, replacement));
+            return { ok: true, recovery: 'element', saved: display(loaded.root, loaded.routeFile), certification: certified };
+          }
+        }
+      } finally {
+        // The established route or a rebuild candidate owns the result after this trial.
+        rmSync(candidate, { force: true });
+      }
+    }
+    if (readFileSync(loaded.routeFile, 'utf8') !== original) return { ...failed(), reason: 'route changed during repair; preserved the concurrent change' };
+    if (!options.discover && !hasModelKey()) return failed();
+    state.phase = 'rebuild';
+    // Reuse the initial failed replay. rebuildStory still requires independent candidate certification.
+    const rebuilt = await rebuildStory({ ...options, replay: (file, current) =>
+      resolve(file) === loaded.routeFile ? Promise.resolve(initial) : replay(options.replay, file, current) });
+    state.actions = rebuilt.report?.observedActions ?? [];
+    state.phase = rebuilt.report?.phase ?? 'rebuild';
+    state.artifacts.push(...(rebuilt.report?.artifacts ?? []).map(file => resolve(loaded.root, file)));
+    if (rebuilt.ok) {
+      state.artifacts.push(writeRepairDiff(loaded.root, display(loaded.root, loaded.routeFile), original, readFileSync(loaded.routeFile, 'utf8')));
+    }
+    return { ...rebuilt, recovery: rebuilt.ok ? 'route' : undefined,
+      failureKind: rebuilt.report?.failure?.kind };
+  });
 }
