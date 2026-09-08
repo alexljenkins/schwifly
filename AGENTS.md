@@ -25,6 +25,10 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   required setup/reset hook. Certification requires green steps and exactly one green proof per clause.
   `runStory()` owns bounded repair and rebuild. Its isolated evidence includes versioned JSON results.
 - Background runs and persistent tester ownership are documented in [docs/tester-sessions.md](./docs/tester-sessions.md).
+- `bench/` compares Stagehand versions and never ships. One engine per run implements
+  `BenchEngine` in `bench/types.ts`; adding a version touches no scenario, metric, or report.
+  Read [docs/benchmark.md](./docs/benchmark.md) before changing it. Live runs cost money and
+  drive a browser, so run `pnpm run bench` alone.
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).
 - For package delivery, OpenRouter, sessions, or recovery, read
   [the checkpoint evidence](./docs/testing-suite-progress.md) and [the handoff](./docs/testing-suite-handoff.md).

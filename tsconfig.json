@@ -9,5 +9,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src", "tests", "workflows"]
+  "include": ["src", "tests", "workflows", "bench"]
 }

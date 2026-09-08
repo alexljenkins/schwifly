@@ -1,7 +1,6 @@
 import type { ModelConfiguration } from '@browserbasehq/stagehand';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { modelCredential, selectedModel } from './settings.js';
+import { recordModelCall } from './modelMeter.js';
 import { MODEL_TIMEOUT_MS, bounded } from './limits.js';
 
 export const DEFAULT_MODEL = 'google/gemini-3.8-flash';
@@ -40,13 +39,23 @@ export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderErr
       const fail = (message: string): never => { const error = new ProviderError(message); onError?.(error); throw error; };
       if (!apiKey || process.env.SCHWIFLY_NO_HEAL === '1') fail('model calls are disabled');
       if (++budget.calls > 36) fail('model call limit reached');
-      const log = process.env.SCHWIFLY_MODEL_LOG;
-      if (log) {
-        mkdirSync(dirname(log), { recursive: true });
-        appendFileSync(log, JSON.stringify({ model: modelId, call: budget.calls }) + '\n');
+      // The meter is written per request, before any error is rethrown, so a benchmark still
+      // sees the cost of a run that later failed.
+      const call = budget.calls;
+      const started = performance.now();
+      const meter = (usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | undefined, ok: boolean) =>
+        recordModelCall({
+          model: modelId, call, ms: Math.round(performance.now() - started),
+          inputTokens: usage?.inputTokens ?? null, outputTokens: usage?.outputTokens ?? null,
+          cachedInputTokens: usage?.cachedInputTokens ?? null, ok,
+        });
+      try {
+        const result = await bounded(Promise.resolve(doGenerate()), params.abortSignal!);
+        meter(result.usage, true);
+        return result;
       }
-      try { return await bounded(Promise.resolve(doGenerate()), params.abortSignal!); }
       catch (error) {
+        meter(undefined, false);
         const failure = providerError(error);
         onError?.(failure);
         throw failure;

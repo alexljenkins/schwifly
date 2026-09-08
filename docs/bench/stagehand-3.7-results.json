@@ -1,0 +1,596 @@
+{
+  "version": 1,
+  "engine": {
+    "id": "stagehand-3.7",
+    "label": "Stagehand 3.7 DOM agent, Playwright replay",
+    "versions": {
+      "@browserbasehq/stagehand": "3.7.3",
+      "@playwright/test": "1.63.0"
+    }
+  },
+  "model": "google/gemini-3.8-flash",
+  "price": {
+    "inputPerMTok": 0.75,
+    "outputPerMTok": 3.75,
+    "source": "https://openrouter.ai/api/v1/models"
+  },
+  "startedAt": "2026-09-08T04:03:19.363Z",
+  "finishedAt": "2026-09-08T04:15:24.153Z",
+  "repeat": 3,
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 6,
+    "node": "v22.22.1"
+  },
+  "measurements": [
+    {
+      "scenario": "discover",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 49767,
+      "model": {
+        "calls": 13,
+        "failedCalls": 0,
+        "inputTokens": 47274,
+        "outputTokens": 1613,
+        "cachedInputTokens": 0,
+        "latencyMs": 39501,
+        "partialTokens": false,
+        "costUsd": 0.04150425
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "replay-unchanged",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 5560,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "repair-moved-control",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 123523,
+      "model": {
+        "calls": 16,
+        "failedCalls": 0,
+        "inputTokens": 49715,
+        "outputTokens": 3410,
+        "cachedInputTokens": 0,
+        "latencyMs": 56614,
+        "partialTokens": false,
+        "costUsd": 0.05007375
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": "route",
+      "reason": null
+    },
+    {
+      "scenario": "defect-persistence",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13613,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "defect-duplicate",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13706,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 2 of 1 for \"Buy milk\"; task-listed: fail: found 2 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "async-update",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 7599,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "infra-model-offline",
+      "engine": "stagehand-3.7",
+      "repetition": 1,
+      "met": true,
+      "status": "failed",
+      "failureKind": "provider_failure",
+      "phase": "repair",
+      "durationMs": 57522,
+      "model": {
+        "calls": 3,
+        "failedCalls": 3,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 265,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 3
+      },
+      "repaired": null,
+      "reason": "repair failed; prior route preserved: route failures: provider_failure: OpenRouter authentication failed; check OPENROUTER_API_KEY (HTTP 401); Playwright exited 1; click the New item button: failed; fill the Title textbox: failed; click the button: Save: failed | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "discover",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 49017,
+      "model": {
+        "calls": 13,
+        "failedCalls": 0,
+        "inputTokens": 47218,
+        "outputTokens": 1561,
+        "cachedInputTokens": 0,
+        "latencyMs": 39199,
+        "partialTokens": false,
+        "costUsd": 0.04126725
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "replay-unchanged",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 5673,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "repair-moved-control",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 118275,
+      "model": {
+        "calls": 16,
+        "failedCalls": 0,
+        "inputTokens": 49773,
+        "outputTokens": 1733,
+        "cachedInputTokens": 0,
+        "latencyMs": 51062,
+        "partialTokens": false,
+        "costUsd": 0.0438285
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": "route",
+      "reason": null
+    },
+    {
+      "scenario": "defect-persistence",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13790,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "defect-duplicate",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13690,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 2 of 1 for \"Buy milk\"; task-listed: fail: found 2 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "async-update",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 7793,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "infra-model-offline",
+      "engine": "stagehand-3.7",
+      "repetition": 2,
+      "met": true,
+      "status": "failed",
+      "failureKind": "provider_failure",
+      "phase": "repair",
+      "durationMs": 56934,
+      "model": {
+        "calls": 3,
+        "failedCalls": 3,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 219,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 3
+      },
+      "repaired": null,
+      "reason": "repair failed; prior route preserved: route failures: provider_failure: OpenRouter authentication failed; check OPENROUTER_API_KEY (HTTP 401); Playwright exited 1; click the New item button: failed; fill the Title textbox: failed; click the button: Save: failed | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "discover",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 38686,
+      "model": {
+        "calls": 12,
+        "failedCalls": 0,
+        "inputTokens": 25418,
+        "outputTokens": 1156,
+        "cachedInputTokens": 0,
+        "latencyMs": 28494,
+        "partialTokens": false,
+        "costUsd": 0.0233985
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "replay-unchanged",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 5796,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "repair-moved-control",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "certification",
+      "durationMs": 51612,
+      "model": {
+        "calls": 1,
+        "failedCalls": 0,
+        "inputTokens": 737,
+        "outputTokens": 880,
+        "cachedInputTokens": 0,
+        "latencyMs": 7489,
+        "partialTokens": false,
+        "costUsd": 0.00385275
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": "element",
+      "reason": null
+    },
+    {
+      "scenario": "defect-persistence",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13641,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "defect-duplicate",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "failed",
+      "failureKind": "unmet_outcome",
+      "phase": "replay",
+      "durationMs": 13722,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": "replay failed; prior route preserved: route failures: Playwright exited 1 | proof failures: task-stored: fail: found 2 of 1 for \"Buy milk\"; task-listed: fail: found 2 of 1 for \"Buy milk\""
+    },
+    {
+      "scenario": "async-update",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "certified",
+      "failureKind": null,
+      "phase": "replay",
+      "durationMs": 7734,
+      "model": {
+        "calls": 0,
+        "failedCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 0,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 0
+      },
+      "repaired": null,
+      "reason": null
+    },
+    {
+      "scenario": "infra-model-offline",
+      "engine": "stagehand-3.7",
+      "repetition": 3,
+      "met": true,
+      "status": "failed",
+      "failureKind": "provider_failure",
+      "phase": "repair",
+      "durationMs": 56560,
+      "model": {
+        "calls": 3,
+        "failedCalls": 3,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cachedInputTokens": 0,
+        "latencyMs": 205,
+        "partialTokens": false,
+        "costUsd": 0
+      },
+      "actions": 3,
+      "steps": {
+        "total": 3,
+        "failed": 3
+      },
+      "repaired": null,
+      "reason": "repair failed; prior route preserved: route failures: provider_failure: OpenRouter authentication failed; check OPENROUTER_API_KEY (HTTP 401); Playwright exited 1; click the New item button: failed; fill the Title textbox: failed; click the Save button: failed | proof failures: task-stored: fail: found 0 of 1 for \"Buy milk\"; task-listed: fail: found 0 of 1 for \"Buy milk\""
+    }
+  ],
+  "notes": []
+}

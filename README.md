@@ -176,6 +176,8 @@ Normal verification needs no keys. The package check installs an archive in a se
 Live provider checks require `SCHWIFLY_LIVE=1`. Read local agent context for host-specific limits.
 
 Stagehand and Playwright versions are pinned because browser evidence callbacks are experimental.
+`pnpm run bench` measures a Stagehand version against controlled scenarios and writes a report to
+`docs/bench/`. It costs money and drives a browser, so run it alone. See [benchmarking](docs/benchmark.md).
 See [the roadmap](TODO.md), [architecture and usage](docs/usage.md), and [delivery evidence](docs/testing-suite-progress.md).
 
 </details>

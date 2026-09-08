@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "pnpm run build",
     "verify:package": "node scripts/check-package.mjs",
+    "bench": "pnpm run build && node --env-file-if-exists=.env --import tsx bench/cli.ts",
     "skill:generate": "pnpm run build && node scripts/generate-skill.mjs",
     "skill:check": "node scripts/generate-skill.mjs --check"
   },
