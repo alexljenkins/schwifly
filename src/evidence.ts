@@ -5,10 +5,10 @@ import type { Page } from '@playwright/test';
 import { redact } from './secrets.js';
 
 /** Failure-only screenshots mask form values, app-marked private regions, and known secret text. */
-export async function captureFailure(page: Page, root?: string): Promise<string | undefined> {
+export async function captureFailure(page: Page, root?: string, destination?: string): Promise<string | undefined> {
   const log = process.env.SCHWIFLY_ARTIFACT_LOG;
-  if (!root && !log) return undefined;
-  const file = resolve(root ? resolve(root, '.schwifly', 'evidence') : dirname(log!), `${randomUUID()}.png`);
+  if (!root && !log && !destination) return undefined;
+  const file = destination ?? resolve(root ? resolve(root, '.schwifly', 'evidence') : dirname(log!), `${randomUUID()}.png`);
   try {
     mkdirSync(dirname(file), { recursive: true });
     const texts = await page.evaluate(() => {

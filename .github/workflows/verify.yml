@@ -22,6 +22,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run typecheck
       - run: pnpm run verify --workers=1
+      - run: pnpm run skill:check
       - run: pnpm run verify:package
       - uses: actions/upload-artifact@v7
         if: always()

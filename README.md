@@ -24,12 +24,88 @@ node server.mjs
 ```
 
 `init` creates a task app, a story, a product proof, and a login example. It refuses to overwrite those files.
-The app uses port 4173. Put `OPENROUTER_API_KEY` in the consumer's ignored `.env` file, then use another terminal:
+The app uses port 4173. Configure the provider through `setup`, then use another terminal:
 
 ```bash
 pnpm exec schwifly attempt stories/add-item.story.yaml
 pnpm exec schwifly run stories/add-item.story.yaml
 ```
+
+## Agent CLI
+
+Run an instruction from any workspace. `--root` selects a different workspace without changing your shell directory.
+The CLI keeps run evidence and saves a workflow only when you request it.
+
+```bash
+pnpm exec schwifly
+pnpm exec schwifly run "Add an item. <expect>Buy milk</expect>" --url http://localhost:4173/app --screenshots
+pnpm exec schwifly run --instruction-file instructions.md --url http://localhost:4173/app --save add-item
+pnpm exec schwifly runs
+pnpm exec schwifly show <id>
+pnpm exec schwifly save <id> --name add-item
+pnpm exec schwifly list
+pnpm exec schwifly run workflows/add-item.spec.ts
+pnpm exec schwifly screenshot http://localhost:4173/app --out screenshots/app.png
+```
+
+An unpublished checkout also works through `node /absolute/path/to/schwifly/bin/schwifly.js` after `pnpm run build`.
+One-off runs and screenshots work in directories without a package manifest or local Schwifly installation.
+Install Schwifly in the consumer before replaying portable saved workflows.
+
+Instructions can be brief, detailed, or read from stdin with `--instruction-file -`.
+Explicit `<expect>visible text</expect>` checks avoid a model guessing the intended outcome.
+Each run starts fresh. Discovery and certification both act on the app, so configure its reset hook for repeatable mutations.
+`--visible` shows discovery. `--max-steps` lowers its default limit of 12. `--model` selects a configured model.
+`--screenshots` captures discovery checkpoints, including the final state. Screenshots mask form values and marked private regions.
+`show` returns paths to retained images, the candidate, and replay evidence under `.schwifly/runs/<id>/`.
+Use `--full` for complete detail text. `runs` and `list` accept `--limit` and `--fields`.
+
+`save` repeats certification before creating a workflow. It refuses changed candidates and preserves existing workflows.
+Saving identical content again succeeds without another run. Delete a run's directory when its evidence is no longer needed.
+Browser commands run serially within a workspace. After an abrupt process termination, remove `.schwifly/browser.lock` only after its recorded process stops.
+
+Default stdout uses [TOON](https://toonformat.dev/reference/spec), a compact structured text format. `--json` selects JSON.
+Errors also use stdout. Diagnostics use stderr. Exit codes are 0 for success, 1 for failed work, and 2 for invalid usage.
+Every command accepts `--help`. The CLI rejects unknown arguments and flags.
+
+### Setup and credentials
+
+Configure allowed OpenRouter model IDs and a default. Pipe a key from your secret manager into the second command.
+
+```bash
+pnpm exec schwifly setup --models google/gemini-3.8-flash --model google/gemini-3.8-flash
+pnpm exec schwifly setup --key-stdin
+```
+
+`--key-stdin` requires piped input and never prompts. Do not put a literal key in command arguments or shell history.
+Setup stores the key in the OS credential store. No Schwifly command prints it.
+Runtime code reads it into memory without adding it to child-process environments.
+Model settings contain no key and live in `$XDG_CONFIG_HOME/schwifly/config.json`, or `~/.config/schwifly/config.json`.
+The model list is a local selection rule, not a security boundary against processes that can edit your settings.
+
+The [credential binding](https://github.com/Brooooooklyn/keyring-node) uses native stores on macOS and Windows.
+On Linux it prefers Secret Service and falls back to the kernel keyring. Kernel credentials may expire with the login session.
+Setup fails if no supported store works. Schwifly requests setup again if a stored credential disappears.
+Other processes running as your user may access the same store. Strong isolation requires a separate OS identity or credential broker.
+CI can still supply `OPENROUTER_API_KEY` through its secret environment. Existing ignored `.env` files remain supported for browser commands.
+
+### Agent integration
+
+Install session context for live workspace state, or install the skill for on-demand guidance. Either works alone.
+
+```bash
+pnpm exec schwifly setup --agent all
+pnpm exec schwifly setup --skill
+```
+
+`--agent` also accepts `claude`, `codex`, or `opencode`. Setup changes only project integration files.
+Repeated setup preserves unrelated hooks and repairs the executable path after relocation.
+Claude Code and Codex use session start/end hooks. OpenCode injects workspace context and records recent run IDs when idle.
+Review and trust Codex hooks through its `/hooks` interface. Integration never starts browser tests automatically.
+The skill installs under `.agents/skills/schwifly/`. The repository also ships [skills/schwifly/SKILL.md](skills/schwifly/SKILL.md).
+The command catalog generates the skill. `pnpm run skill:check` detects stale generated content after a build.
+
+See [the CLI contract](docs/agent-cli.md) for persistence and credential decisions.
 
 All commands accept `--root <consumer-directory>`. Stories, config, routes, and evidence resolve against that root.
 Generated workflows import `schwifly/*`. Consumers do not need this checkout's source.
@@ -158,7 +234,7 @@ The [consumer CI example](examples/ci/schwifly.yml) retains these results, scree
 
 ## Models and limits
 
-`OPENROUTER_API_KEY` enables model calls. `SCHWIFLY_MODEL` selects an OpenRouter model ID.
+Stored credentials or `OPENROUTER_API_KEY` enable model calls. `--model` and `SCHWIFLY_MODEL` override the setup default.
 The tested default is `google/gemini-3.8-flash`.
 [Checkpoint evidence](docs/testing-suite-progress.md) records the live model checks and installed dependency versions.
 Discovery, generation, optional recording labels, and model repair share the configuration in `src/llm.ts`.
