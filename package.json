@@ -16,10 +16,10 @@
     "skill:check": "node scripts/generate-skill.mjs --check"
   },
   "dependencies": {
-    "@browserbasehq/stagehand": "3.7.1",
+    "@browserbasehq/stagehand": "3.7.3",
     "@iarna/toml": "^2.2.5",
     "@napi-rs/keyring": "^2.0.0",
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.63.0",
     "@toon-format/toon": "^4.1.1",
     "picocolors": "^1.1.1",
     "tsx": "^4.19.0",

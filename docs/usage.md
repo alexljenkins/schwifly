@@ -292,6 +292,6 @@ It uses scripted browser discovery by default. To run the same consumer with liv
 SCHWIFLY_LIVE=1 SCHWIFLY_MODEL=google/gemini-3.8-flash node --env-file=.env scripts/check-package.mjs
 ```
 
-Stagehand 3.7.1 and Playwright 1.61.1 are pinned because capture depends on experimental evidence callbacks.
+Stagehand 3.7.3 and Playwright 1.63.0 are pinned because capture depends on experimental evidence callbacks.
 The architecture and earlier decisions are in [TODO.md](../TODO.md) and [the contract design](../SCHWIFLY-USER-OUTCOME-CONTRACTS.md).
 Autonomous spec decomposition, app coding, crawling, persona simulation, and scoring remain outside this package.
