@@ -20,11 +20,11 @@ This file is the project's committed home for project-intrinsic agent knowledge:
   Initial generation preserves existing workflows. Repairs replace them only after fresh certification.
 - `pnpm run verify` must stay key-free: live paths belong behind injectable seams with fake
   fixtures, not behind an API key.
-- Run browser verification with `pnpm run verify --workers=1`, separately from type checking or
-  other browser work. Check nested runners too. Parallel verification preceded a PC crash.
+- Before running browser verification, read `CLAUDE.local.md` if present for machine-specific limits.
 - Story runs reload the authoritative story and consumer config. Each session runs the app's
   required setup/reset hook. Certification requires green steps and exactly one green proof per clause.
   `runStory()` owns bounded repair and rebuild. Its isolated evidence includes versioned JSON results.
+- Background runs and persistent tester ownership are documented in [docs/tester-sessions.md](./docs/tester-sessions.md).
 - Commands, architecture and roadmap live in [README.md](./README.md) and [TODO.md](./TODO.md).
 - For package delivery, OpenRouter, sessions, or recovery, read
   [the checkpoint evidence](./docs/testing-suite-progress.md) and [the handoff](./docs/testing-suite-handoff.md).

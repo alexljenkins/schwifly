@@ -11,6 +11,6 @@ export default defineConfig({
   reporter: [['list'], ['json', { outputFile: resolve(root, '.schwifly', 'last-run.json') }]],
   projects: [
     { name: 'workflows', testMatch: '**/*.spec.ts', testIgnore: ['**/candidates/**', '**/node_modules/**'] },
-    { name: 'candidate', testMatch: '**/candidates/*.spec.ts' },
+    { name: 'candidate', testMatch: ['**/candidates/*.spec.ts', '**/candidates/*.spec.mts'] },
   ],
 });

@@ -20,6 +20,7 @@ export async function runPlaywright(args: string[], options: SpawnSyncOptions = 
   const { timeout = 180_000, encoding: _encoding, ...spawnOptions } = options;
   const child = spawn(process.execPath, [PLAYWRIGHT_CLI, ...serial], {
     ...spawnOptions,
+    ...(process.env.SCHWIFLY_CLI === '1' && spawnOptions.stdio === 'inherit' ? { stdio: ['inherit', 2, 2] as ['inherit', number, number] } : {}),
     cwd: root,
     env: { ...process.env, ...options.env, SCHWIFLY_ROOT: root },
     detached: process.platform !== 'win32',

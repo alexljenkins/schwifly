@@ -5,10 +5,10 @@ import type { Page } from '@playwright/test';
 import { redact } from './secrets.js';
 
 /** Failure-only screenshots mask form values, app-marked private regions, and known secret text. */
-export async function captureFailure(page: Page, root?: string): Promise<string | undefined> {
+export async function captureFailure(page: Page, root?: string, destination?: string, crop?: { selector: string; padding: number }): Promise<string | undefined> {
   const log = process.env.SCHWIFLY_ARTIFACT_LOG;
-  if (!root && !log) return undefined;
-  const file = resolve(root ? resolve(root, '.schwifly', 'evidence') : dirname(log!), `${randomUUID()}.png`);
+  if (!root && !log && !destination) return undefined;
+  const file = destination ?? resolve(root ? resolve(root, '.schwifly', 'evidence') : dirname(log!), `${randomUUID()}.png`);
   try {
     mkdirSync(dirname(file), { recursive: true });
     const texts = await page.evaluate(() => {
@@ -31,7 +31,18 @@ export async function captureFailure(page: Page, root?: string): Promise<string 
       return changed;
     }, edits as Array<[string, string]>);
     try {
-      await page.screenshot({ path: file, mask: [page.locator('input, textarea, select, [data-private], [data-schwifly-private]')] });
+      let clip;
+      if (crop) {
+        const locator = page.locator(crop.selector);
+        await locator.scrollIntoViewIfNeeded();
+        const box = await locator.boundingBox();
+        if (!box) throw new Error('screenshot element is not visible');
+        const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+        const x = Math.max(0, box.x - crop.padding);
+        const y = Math.max(0, box.y - crop.padding);
+        clip = { x, y, width: Math.min(viewport.width, box.x + box.width + crop.padding) - x, height: Math.min(viewport.height, box.y + box.height + crop.padding) - y };
+      }
+      await page.screenshot({ path: file, ...(clip ? { clip } : {}), mask: [page.locator('input, textarea, select, [data-private], [data-schwifly-private]')] });
     } finally {
       await changed.evaluate(changes => { for (const { node, text } of changes) node.textContent = text; }).catch(() => {});
       await changed.dispose();

@@ -8,6 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 
 function runCli(args: string[]): ReturnType<typeof spawnSync> {
+  if (args[0] === 'run') args = [...args, '--foreground'];
   const base = join(root, '.schwifly');
   mkdirSync(base, { recursive: true });
   const cwd = mkdtempSync(join(base, 'cli-test-'));
@@ -41,7 +42,7 @@ test('run exits non-zero when Playwright finds no matching tests', () => {
 
 test('gen does not mistake a flag value for the missing story', () => {
   const result = runCli(['gen', '--url', 'https://example.com']);
-  expect(result.status).toBe(1);
+  expect(result.status).toBe(2);
   expect(output(result)).toContain('usage: schwifly gen');
   expect(output(result)).not.toContain('needs an LLM key');
 });
@@ -55,7 +56,7 @@ test('gen rejects output outside workflows before discovery can run', () => {
     '--out',
     '../escape.spec.ts',
   ]);
-  expect(result.status).toBe(1);
+  expect(result.status).toBe(2);
   expect(output(result)).toContain('workflows/<name>.spec.ts');
   expect(output(result)).not.toContain('needs an LLM key');
 });
@@ -83,18 +84,18 @@ test('gen refuses to overwrite an existing workflow before discovery can run', (
     ],
     { cwd, env, encoding: 'utf8' },
   );
-  expect(result.status).toBe(1);
+  expect(result.status).toBe(2);
   expect(result.stdout + result.stderr).toContain('already exists');
   rmSync(cwd, { recursive: true, force: true });
 });
 
 test('record validates its URL and output before opening interactive codegen', () => {
   const missing = runCli(['record']);
-  expect(missing.status).toBe(1);
+  expect(missing.status).toBe(2);
   expect(output(missing)).toContain('usage: schwifly record');
 
   const badUrl = runCli(['record', 'file:///tmp/page.html']);
-  expect(badUrl.status).toBe(1);
+  expect(badUrl.status).toBe(2);
   expect(output(badUrl)).toContain('URL must use http or https');
 
   const escape = runCli([
@@ -103,7 +104,7 @@ test('record validates its URL and output before opening interactive codegen', (
     '--out',
     '../escape.spec.ts',
   ]);
-  expect(escape.status).toBe(1);
+  expect(escape.status).toBe(2);
   expect(output(escape)).toContain('workflows/<name>.spec.ts');
   expect(output(escape)).not.toContain('complete the flow');
 });
@@ -122,12 +123,12 @@ test('story attempts reject ticket-owned URL and output flags', () => {
 
 test('rebuild requires one story file and rejects unrelated flags', () => {
   const missing = runCli(['rebuild']);
-  expect(missing.status).toBe(1);
+  expect(missing.status).toBe(2);
   expect(output(missing)).toContain('usage: schwifly rebuild');
 
   const option = runCli(['rebuild', 'stories/add.story.yaml', '--out', 'workflows/x.spec.ts']);
-  expect(option.status).toBe(1);
-  expect(output(option)).toContain('unknown option: --out');
+  expect(option.status).toBe(2);
+  expect(output(option)).toContain('--out');
 });
 
 test('an invalid story marker reports a contract failure and permits other workflows to run', () => {
@@ -143,7 +144,7 @@ test('an invalid story marker reports a contract failure and permits other workf
 import { writeFileSync } from 'node:fs';
 test('selected legacy workflow', () => { writeFileSync('executed.txt', 'yes'); });
 `);
-  const cli = (args: string[]) => spawnSync(tsx, [join(root, 'src', 'cli.ts'), '--root', cwd, ...args], { cwd: root, encoding: 'utf8' });
+  const cli = (args: string[]) => spawnSync(tsx, [join(root, 'src', 'cli.ts'), '--root', cwd, ...args, '--foreground'], { cwd: root, encoding: 'utf8' });
   try {
     for (const marker of ['"missing.story.yaml"', '{}', '']) {
       writeFileSync(broken, source.replace('"missing.story.yaml"', marker));
@@ -152,9 +153,12 @@ test('selected legacy workflow', () => { writeFileSync('executed.txt', 'yes'); }
       expect(JSON.parse(String(result.stdout)).failure.kind).toBe('invalid_contract');
     }
     writeFileSync(broken, source);
-    const directory = cli(['run', 'workflows/']);
+    const directory = cli(['run', 'workflows/', '--workers=1']);
     expect(directory.status, output(directory)).toBe(1);
     expect(existsSync(join(cwd, 'executed.txt')), output(directory)).toBe(true);
     expect(readFileSync(broken, 'utf8')).toBe(source);
+    const legacyJson = cli(['run', 'workflows/legacy.spec.ts', '--json']);
+    expect(legacyJson.status, output(legacyJson)).toBe(0);
+    expect(JSON.parse(String(legacyJson.stdout))).toMatchObject({ status: 'passed', total: 1 });
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });

@@ -11,6 +11,7 @@ import { recordRunnerFailure } from './failureLog.js';
 
 export interface SharedSession {
   signal: AbortSignal;
+  beginTurn(): void;
   readonly providerFailure?: ProviderError;
   stagehand: Stagehand;
   browser: Browser;
@@ -29,9 +30,11 @@ export interface SharedSessionOptions {
   evidence?: boolean;
   /** Force a headed browser regardless of SCHWIFLY_HEADED (the `attempt --visible` demo switch). */
   headed?: boolean;
-  /** Test seam for a shorter positive deadline. The session still cannot exceed 120 seconds. */
+  /** Test seam for a shorter standalone deadline. Standalone sessions cannot exceed 120 seconds. */
   timeoutMs?: number;
   storageState?: string;
+  /** A tester owns the lifetime and applies a deadline to each request. */
+  persistent?: boolean;
 }
 
 export async function openSharedSession(opts: SharedSessionOptions = {}): Promise<SharedSession> {
@@ -40,7 +43,8 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
   }
   const controller = new AbortController();
   let providerFailure: ProviderError | undefined;
-  const model = sessionModel(controller.signal, error => { providerFailure = error; recordRunnerFailure(error); });
+  const budget = { calls: 0 };
+  const model = sessionModel(controller.signal, error => { providerFailure = error; recordRunnerFailure(error); }, budget);
   // Reuse the Chromium Playwright already installed (no extra Chrome download / system Chrome
   // dependency). Without executablePath, Stagehand's chrome-launcher errors "CHROME_PATH must
   // be set". --no-sandbox is required to launch Chromium inside sandboxed CI/Linux (otherwise
@@ -74,7 +78,7 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
   };
   // The deadline is infrastructure exhaustion, not a locator defect, so it is reported as a
   // browser failure and stops route recovery instead of paying for a repair and a rebuild.
-  const timer = setTimeout(() => {
+  const timer = opts.persistent ? undefined : setTimeout(() => {
     const expired = new SessionTimeoutError();
     recordRunnerFailure(expired);
     controller.abort(expired);
@@ -84,7 +88,7 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
   process.once('SIGTERM', interrupt);
   let page: Page;
   try {
-    await bounded(stagehand.init(), controller.signal);
+    await bounded(stagehand.init(), AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]));
     browser = await chromium.connectOverCDP(stagehand.connectURL());
     const firstPage = browser.contexts()[0]?.pages()[0];
     if (!firstPage) throw new Error('Stagehand opened no browser page');
@@ -110,5 +114,5 @@ export async function openSharedSession(opts: SharedSessionOptions = {}): Promis
 
   page.setDefaultTimeout(5000);
   page.setDefaultNavigationTimeout(30_000);
-  return { signal: controller.signal, get providerFailure() { return providerFailure; }, stagehand, browser, page, close };
+  return { signal: controller.signal, beginTurn() { budget.calls = 0; providerFailure = undefined; }, get providerFailure() { return providerFailure; }, stagehand, browser, page, close };
 }

@@ -1,7 +1,7 @@
 {
   "name": "schwifly",
   "version": "0.1.0",
-  "description": "Deterministic-workflow-first web test platform; AI is the failure-backup that heals and updates the workflow.",
+  "description": "A persistent browser tester for coding agents: concise feedback, focused screenshots, and certified regression tests.",
   "type": "module",
   "author": "Alex Jenkins",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -11,14 +11,19 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "pnpm run build",
-    "verify:package": "node scripts/check-package.mjs"
+    "verify:package": "node scripts/check-package.mjs",
+    "skill:generate": "pnpm run build && node scripts/generate-skill.mjs",
+    "skill:check": "node scripts/generate-skill.mjs --check"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "3.7.1",
+    "@iarna/toml": "^2.2.5",
+    "@napi-rs/keyring": "^2.0.0",
     "@playwright/test": "1.61.1",
+    "@toon-format/toon": "^4.1.1",
     "picocolors": "^1.1.1",
-    "yaml": "^2.9.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -45,7 +50,11 @@
     "bin/",
     "examples/",
     "README.md",
-    "LICENSE.md"
+    "LICENSE.md",
+    "skills/",
+    "docs/usage.md",
+    "docs/agent-cli.md",
+    "docs/tester-sessions.md"
   ],
   "engines": {
     "node": ">=22.6"

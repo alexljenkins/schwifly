@@ -6,6 +6,7 @@ import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
 import { emit, type EmitAssertion, type EmitStep } from './emit.js';
 import { stableSelector } from './generate.js';
+import type { SharedSession } from './sharedCdp.js';
 import { openConfiguredSession } from './session.js';
 import { redact } from './secrets.js';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
@@ -54,13 +55,16 @@ export interface DiscoveryRequest {
   maxSteps: number;
   visible: boolean;
   contract: OutcomeContract;
+  onCheckpoint?: (page: Page, label: string) => Promise<void>;
 }
 
 export interface AttemptOptions {
   ticket: string;
   url: string;
   title: string;
-  out: string;
+  out?: string;
+  candidateFile?: string;
+  onCheckpoint?: DiscoveryRequest['onCheckpoint'];
   maxSteps?: number;
   visible?: boolean;
   /** Seams: the live implementations are the defaults; tests inject fakes to stay key-free. */
@@ -112,9 +116,10 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
   const visible = opts.visible ?? false;
 
   // Discovery can spend money and mutate the remote app. Refuse a destructive local write first.
-  if (existsSync(opts.out)) return { ok: false, reason: redact(`output already exists: ${opts.out}`) };
+  if (opts.out && existsSync(opts.out)) return { ok: false, reason: redact(`output already exists: ${opts.out}`) };
 
   // 1. Resolve the outcome contract BEFORE trusting anything the attempt produces.
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Resolving the expected outcome.');
   const resolve = opts.resolveContract ?? proposeContractLive;
   const contract = contractFromTicket(opts.ticket) ?? (await resolve(opts.ticket, opts.url, visible));
   if (!contract) {
@@ -123,7 +128,8 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
 
   // 2. Bounded, same-origin attempt. Discovery observes the browser; it does not interview the agent.
   const discover = opts.discover ?? liveDiscover;
-  const discovery = await discover({ ticket: opts.ticket, url: opts.url, maxSteps, visible, contract });
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Exploring the app. Browser actions stay in the progress log.');
+  const discovery = await discover({ ticket: opts.ticket, url: opts.url, maxSteps, visible, contract, onCheckpoint: opts.onCheckpoint });
 
   // 3. The contract is the judge. A lying agent dies here, before anything is emitted or saved.
   if (discovery.unmet.length || !discovery.assertions.length) {
@@ -145,14 +151,17 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
 
   // 4. Certification: replay the candidate in a FRESH session with the agent and the heal tier
   //    both disabled, so discovery cannot certify itself by healing an inaccurate capture.
-  const candidate = candidatePath();
+  const candidate = opts.candidateFile ?? candidatePath();
   write(candidate, source, true);
   const replay = opts.replay ?? replayAgentFree;
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Replaying captured actions in a fresh browser with model repair disabled.');
   const green = await replay(candidate);
   if (!green) {
     // Candidate stays on disk as redacted debug evidence; no workflow is created or overwritten.
     return { ok: false, contract, candidate: source, reason: `replay failed; candidate kept at ${candidate}` };
   }
+
+  if (!opts.out) return { ok: true, contract, candidate: source };
 
   // The exclusive write closes the race between the early exists check and a concurrent writer.
   try {
@@ -250,7 +259,7 @@ export async function liveDiscover(req: DiscoveryRequest): Promise<Discovery> {
     );
     const { assertions, unmet } = await bindContract(page, req.contract);
     return { assertions, unmet, notes };
-  });
+  }, undefined, req.onCheckpoint);
   return { actions: captured.actions, ...captured.value };
 }
 
@@ -282,13 +291,25 @@ async function captureLive<T>(
   visible: boolean,
   run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
   open = () => openConfiguredSession({ url, phase: 'discovery', evidence: true, headed: visible }),
+  checkpoint?: DiscoveryRequest['onCheckpoint'],
 ): Promise<{ actions: CapturedAction[]; value: T }> {
   const session = await open();
+  try {
+    await guardOrigin(session.page, url);
+    await session.page.goto(url);
+    return await captureSession(session, maxSteps, visible, run, checkpoint);
+  } finally { await session.close(); }
+}
+
+export async function captureSession<T>(
+  session: SharedSession, maxSteps: number, visible: boolean,
+  run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
+  checkpoint?: DiscoveryRequest['onCheckpoint'],
+): Promise<{ actions: CapturedAction[]; value: T }> {
   const actions: CapturedAction[] = [];
   try {
     const { page, stagehand } = session;
-    await guardOrigin(page, url);
-    await page.goto(url);
+    await checkpoint?.(page, 'start');
 
     let pending: CapturedAction[] = [];
     // Stagehand wraps tool results in an AI SDK envelope: the native return value (and with it
@@ -322,6 +343,7 @@ async function captureLive<T>(
         // One probe covers every step since the previous probe (Stagehand's documented semantics).
         for (const p of pending) p.postUrl = String(event.url ?? '');
         pending = [];
+        await checkpoint?.(page, `step-${actions.length}`);
       }
     };
 
@@ -337,18 +359,19 @@ async function captureLive<T>(
       if (DEBUG) console.error(`[attempt:result] ${redact(String(result?.message ?? ''))}`);
       return redact(String(result?.message ?? ''));
     };
-    return { actions, value: await run(page, execute) };
+    const value = await run(page, execute);
+    await checkpoint?.(page, 'final');
+    return { actions, value };
   } catch (cause) {
+    await checkpoint?.(session.page, 'failure').catch(() => {});
     throw Object.assign(new Error(redact(String(cause)), { cause }), { name: 'ExplorationError', actions: redact(actions) });
-  } finally {
-    await session.close();
   }
 }
 
 // Same-origin at the BROWSER, not in the prompt: any cross-origin navigation is aborted, so the
 // bounded attempt physically cannot wander off the app under test. Cross-origin subresources
 // (fonts, CDN scripts) are left alone — blocking those breaks rendering without bounding anything.
-async function guardOrigin(page: Page, url: string): Promise<void> {
+export async function guardOrigin(page: Page, url: string): Promise<void> {
   const origin = new URL(url).origin;
   await page.context().route('**/*', (route) => {
     const req = route.request();
@@ -365,7 +388,7 @@ async function guardOrigin(page: Page, url: string): Promise<void> {
 
 // The contract, checked against the page the agent actually left behind. Each satisfied check
 // becomes an expectText assertion on a stable locator; each unsatisfied one fails the run.
-async function bindContract(
+export async function bindContract(
   page: Page,
   contract: OutcomeContract,
 ): Promise<{ assertions: EmitAssertion[]; unmet: string[] }> {
