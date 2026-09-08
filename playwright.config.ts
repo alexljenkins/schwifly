@@ -26,7 +26,7 @@ export default defineConfig({
   testDir: '.',
   fullyParallel: false,
   workers: 1,
-  reporter: [['list'], ['json', { outputFile: '.schwifly/last-run.json' }]],
+  reporter: [['./src/verificationReporter.ts'], ['json', { outputFile: '.schwifly/last-run.json' }]],
   use: { trace: 'on-first-retry' },
   projects: [
     {

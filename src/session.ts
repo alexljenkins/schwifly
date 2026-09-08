@@ -21,6 +21,7 @@ export interface SessionOptions {
   story?: StoryContract;
   headed?: boolean;
   evidence?: boolean;
+  persistent?: boolean;
 }
 
 export async function openConfiguredSession(options: SessionOptions) {

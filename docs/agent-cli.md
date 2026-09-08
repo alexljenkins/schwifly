@@ -1,10 +1,10 @@
 # Agent CLI
 
 The primary command is `run`. With an instruction and `--url`, it starts a bounded browser attempt.
-With a workflow or story path, it replays the saved test. `--instruction-file` accepts detailed instructions.
+With a workflow or story path, it replays the saved test. Runs return background IDs by default. Use `--foreground` for a final exit code. `--instruction-file` accepts detailed instructions.
 One-off runs retain evidence under `.schwifly/runs/` without adding a workflow.
 `--save <name>` or `save <id> --name <name>` promotes only a freshly certified candidate.
-`show <id>` inspects evidence. `list` finds saved workflows. `runs` finds previous one-off runs.
+`status <id>` checks background completion. `show <id>` inspects evidence. `list` finds saved workflows. `runs` finds previous one-off runs.
 `screenshot <url>` captures a page without model calls. `--screenshots` records discovery checkpoints.
 
 Reuse the existing outcome contract and fresh replay gate. Keep story proofs and recovery unchanged.
@@ -28,9 +28,11 @@ References: [AXI](https://github.com/kunchenguid/axi), [TOON specification](http
 [OS credential binding](https://github.com/Brooooooklyn/keyring-node), [Claude hooks](https://code.claude.com/docs/en/hooks),
 [Codex hooks](https://developers.openai.com/codex/hooks), [OpenCode plugins](https://opencode.ai/docs/plugins/).
 
+Persistent testers retain the browser and recent requests. See [tester sessions](tester-sessions.md) for ownership and reset semantics.
+
 ## Verification
 
-- Type checking passes. The full serial suite passes 148 tests and skips 3 live model checks.
+- The delivery checkpoint records the latest completed suite results.
 - Focused checks cover setup, executable shadowing, path repair, symlink containment, screenshots, and session context.
 - The installed archive passes all 11 consumer scenarios with 0 model calls.
 - The native credential store passes a disposable write/read/delete check on this Linux host.

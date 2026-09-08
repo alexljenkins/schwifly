@@ -90,7 +90,7 @@ Preserve the pinned evidence callbacks until a replacement passes capture and fr
 ## Verification and scope
 
 The merge passed type checking. The brain records 106 passing tests and 2 skipped tests at `3ead4da` on September 5, 2026.
-The September 7 parallel verification was interrupted by a PC crash. It is not a passing baseline.
+Use the latest completed verification evidence as the baseline.
 Run focused tests first. Run these commands separately, with no other browser work active:
 
 ```bash

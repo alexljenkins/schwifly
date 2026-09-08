@@ -1,7 +1,7 @@
 {
   "name": "schwifly",
   "version": "0.1.0",
-  "description": "Deterministic-workflow-first web test platform; AI is the failure-backup that heals and updates the workflow.",
+  "description": "A persistent browser tester for coding agents: concise feedback, focused screenshots, and certified regression tests.",
   "type": "module",
   "author": "Alex Jenkins",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -51,7 +51,10 @@
     "examples/",
     "README.md",
     "LICENSE.md",
-    "skills/"
+    "skills/",
+    "docs/usage.md",
+    "docs/agent-cli.md",
+    "docs/tester-sessions.md"
   ],
   "engines": {
     "node": ">=22.6"

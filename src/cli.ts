@@ -4,10 +4,11 @@ import { dirname, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, format } from 'node:util';
-import { commands, description, globals, guidance, help } from './cliGuide.js';
-import { output, preview, UsageError } from './cliOutput.js';
+import { commands, sessionCommands, description, globals, guidance, help } from './cliGuide.js';
+import { output, preview, conciseResult, UsageError } from './cliOutput.js';
 import { readSettings, saveSettings, selectedModel, validModel } from './settings.js';
 import { redact } from './secrets.js';
+import { shellQuote } from './background.js';
 
 const version = () => JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 type Flags = Record<string, string | boolean | undefined>;
@@ -27,7 +28,9 @@ function parse(argv: string[]) {
   }
   const command = args.shift();
   if (command && !commands[command]) throw new UsageError(`unknown command ${command}; commands: ${Object.keys(commands).join(', ')}`);
-  const spec = command ? commands[command] : undefined;
+  const subcommand = command === 'session' && !args[0]?.startsWith('-') ? args[0] : undefined;
+  if (subcommand && !sessionCommands[subcommand]) throw new UsageError(`unknown session command ${subcommand}; use ${Object.keys(sessionCommands).join(', ')}`);
+  const spec = subcommand ? sessionCommands[subcommand] : command ? commands[command] : undefined;
   const options: Record<string, { type: 'string' | 'boolean' }> = {};
   for (const key of ['root', ...Object.keys(spec?.values ?? {})]) options[key] = { type: 'string' };
   for (const key of ['json', 'full', 'help', 'version', ...Object.keys(spec?.booleans ?? {})]) options[key] = { type: 'boolean' };
@@ -110,7 +113,8 @@ async function savedTests() {
 
 async function home() {
   const { listRuns, workspacePath } = await import('./oneOff.js');
-  const runs = listRuns();
+  const { listBackground } = await import('./background.js');
+  const runs = [...listRuns(), ...listBackground()].sort((a, b) => b.created.localeCompare(a.created));
   let previousSession: string | undefined;
   try {
     const value = JSON.parse(readFileSync(workspacePath('.schwifly/session.json'), 'utf8'));
@@ -119,14 +123,16 @@ async function home() {
   const tests = await savedTests();
   const settings = readSettings();
   const executable = realpathSync(process.argv[1]);
+  const sessions = (await import('./testerStore.js')).listTesters().filter(session => !['stopped', 'failed'].includes(session.status));
   return {
     bin: executable.startsWith(homedir() + '/') ? '~' + executable.slice(homedir().length) : executable,
     description, root: process.cwd(), credential: settings?.credential ? 'stored in OS credential store' : process.env.OPENROUTER_API_KEY ? 'environment' : 'not configured',
     model: process.env.SCHWIFLY_MODEL ?? settings?.model ?? 'package default',
+    sessions: sessions.length ? sessions.map(({ id, status }) => ({ id, status })) : '0 active testers in this workspace',
     tests: tests.length ? tests.slice(0, 5) : '0 saved tests in this workspace', totalTests: tests.length,
     runs: runs.length ? fields(runs.slice(0, 3), undefined, ['id', 'status', 'created'], ['id', 'status', 'created']) : '0 one-off runs in this workspace', totalRuns: runs.length,
     ...(previousSession ? { lastSession: previousSession, runsSinceSession: runs.filter(run => run.created > previousSession!).length } : {}),
-    help: [...guidance.slice(0, 1), ...(runs.length ? ['schwifly show <id>'] : []), ...(tests.length > 5 ? ['schwifly list'] : []), ...(runs.length > 3 ? ['schwifly runs'] : []), ...(!settings?.credential && !process.env.OPENROUTER_API_KEY ? ['schwifly setup --models <provider/model> --key-stdin'] : [])],
+    help: [sessions.length ? `schwifly session ask ${sessions[0].id} "<check>"` : 'schwifly session start --url <url>', ...guidance.slice(0, 1), ...(runs.length ? ['schwifly show <id>'] : []), ...(tests.length > 5 ? ['schwifly list'] : []), ...(runs.length > 3 ? ['schwifly runs'] : []), ...(!settings?.credential && !process.env.OPENROUTER_API_KEY ? ['schwifly setup --models <provider/model> --key-stdin'] : [])],
   };
 }
 
@@ -153,15 +159,12 @@ async function setup(flags: Flags) {
 }
 
 async function locked<T>(action: () => Promise<T>): Promise<T> {
-  const { workspacePath } = await import('./oneOff.js');
-  const lock = workspacePath('.schwifly/browser.lock');
-  mkdirSync(dirname(lock), { recursive: true });
-  try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); }
-  catch { throw new Error('workspace browser is locked; wait for its run, or remove .schwifly/browser.lock after confirming its recorded process has stopped'); }
+  const { acquireBrowser } = await import('./browserLock.js');
+  const release = acquireBrowser();
   const log = console.log;
   console.log = (...args: unknown[]) => process.stderr.write(redact(format(...args)) + '\n');
   try { return await action(); }
-  finally { console.log = log; rmSync(lock, { force: true }); }
+  finally { console.log = log; release(); }
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -174,43 +177,83 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     json = flags.json === true;
     const [target] = input.positionals;
     if (flags.version) { process.stdout.write(version() + '\n'); return 0; }
-    if (flags.help) { output(help(command), json); return 0; }
+    if (flags.help) { output(help(command, command === 'session' ? target : undefined), json); return 0; }
     if (flags.root) process.chdir(resolve(String(flags.root)));
     process.env.SCHWIFLY_ROOT = process.cwd();
     process.env.SCHWIFLY_CLI = '1';
     let data: unknown;
     let code = 0;
-    const scoped = (text: string) => flags.root ? `${text} --root ${JSON.stringify(process.cwd())}` : text;
+    const scoped = (text: string) => flags.root ? `${text} --root ${shellQuote(process.cwd())}` : text;
     if (!command || (command === 'context' && !flags.end)) data = await home();
     else if (command === 'context') {
       const { listRuns, workspacePath } = await import('./oneOff.js');
       const file = workspacePath('.schwifly/session.json');
-      const runs = listRuns();
+      const runs = [...listRuns(), ...(await import('./background.js')).listBackground()].sort((a, b) => b.created.localeCompare(a.created));
       if (runs.length) {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), runs: runs.slice(0, 3).map(run => run.id) }) + '\n');
       }
       return 0;
     } else if (command === 'setup') data = await setup(flags);
+    else if (command === 'session') {
+      const { startTester, listTesters, readTester, submitTester } = await import('./testerStore.js');
+      const [, id, instruction] = input.positionals;
+      if (target === 'start') {
+        if (!flags.url) throw new UsageError('--url is required');
+        data = startTester(webUrl(String(flags.url)), flags.headless === true);
+        process.stderr.write('Starting a tester in the background. Use session status to get its browser debug endpoint.\n');
+      } else if (target === 'list') {
+        const sessions = listTesters();
+        data = { total: sessions.length, sessions: sessions.length ? sessions.map(({ id, status, url }) => ({ id, status, url })) : '0 tester sessions in this workspace' };
+      } else if (target === 'status') data = readTester(id);
+      else {
+        data = submitTester(id, { operation: target as import('./testerStore.js').TesterOperation, instruction,
+          element: flags.element as string | undefined, padding: flags.padding === undefined ? undefined : Number(flags.padding), name: flags.name as string | undefined });
+        process.stderr.write('Queued in the background. You can continue coding. Read the returned log file for progress.\n');
+      }
+    } else if (command === 'status') {
+      const { readBackground, receipt } = await import('./background.js');
+      const run = readBackground(target);
+      data = { ...receipt(run), ...(run.reason ? { reason: run.reason } : {}) };
+      code = run.status === 'failed' ? 1 : 0;
+    }
     else if (command === 'runs' || command === 'list') {
       const limit = Number(flags.limit ?? 100);
       if (!Number.isSafeInteger(limit) || limit < 1) throw new UsageError('--limit must be a positive integer');
       const { listRuns } = await import('./oneOff.js');
       const runs = command === 'runs';
-      const rows = runs ? listRuns() : await savedTests();
+      const rows = runs ? [...listRuns(), ...(await import('./background.js')).listBackground()].sort((a, b) => b.created.localeCompare(a.created)) : await savedTests();
       const selected = fields(rows, flags.fields as string | undefined, runs ? ['id', 'status', 'created'] : ['path', 'kind', 'name'], runs ? ['id', 'status', 'instruction', 'created', 'url', 'model'] : ['path', 'kind', 'name']);
       data = { total: rows.length, [runs ? 'runs' : 'tests']: rows.length ? selected.slice(0, limit) : `0 ${runs ? 'one-off runs' : 'saved tests'} in this workspace`,
         help: [scoped(runs ? 'schwifly show <id>' : 'schwifly run <path>'), ...(rows.length > limit ? [scoped(`schwifly ${command} --limit ${rows.length}`)] : [])] };
     } else if (command === 'show') {
+      const { hasBackground, readBackground, receipt } = await import('./background.js');
+      if (hasBackground(target)) {
+        const run = readBackground(target);
+        const { help: next, ...info } = receipt(run);
+        output({ ...info, ...(['queued', 'running'].includes(run.status) ? { help: next } : {}), ...(run.reason ? { reason: run.reason } : {}), ...(run.result === undefined ? {} : { result: flags.full || json ? run.result : conciseResult(run.result) }) }, json);
+        return run.status === 'failed' ? 1 : 0;
+      }
       const { readRun } = await import('./oneOff.js');
       const record = readRun(target);
       data = { ...record, evidence: `.schwifly/runs/${target}/`, instruction: preview(record.instruction, flags.full === true),
         ...(record.instruction.length > 1000 && !flags.full ? { help: [scoped(`schwifly show ${target} --full`)] } : {}) };
     } else if (command === 'save') {
       if (!flags.name) throw new UsageError('--name is required; use schwifly save <id> --name <name>');
-      const { saveRun } = await import('./oneOff.js');
+      const { saveRun, workflowPath, readRun } = await import('./oneOff.js');
+      const { hasBackground, readBackground, startBackground } = await import('./background.js');
+      workflowPath(String(flags.name));
+      let sourceId = target;
+      if (hasBackground(target)) {
+        const previous = readBackground(target);
+        const result = previous.result as { id?: string; status?: string } | undefined;
+        if (previous.status !== 'passed' || result?.status !== 'certified' || !result.id) throw new Error('run has no certified workflow; inspect schwifly show <id>');
+        sourceId = result.id;
+      }
+      if (readRun(sourceId).status !== 'certified') throw new Error('run is not certified; repeat it with a clear expected outcome');
       if (existsSync('.env')) process.loadEnvFile('.env');
-      data = await locked(() => saveRun(target, String(flags.name)));
+      if (!flags.foreground) data = startBackground(['save', sourceId, '--name', String(flags.name)]);
+      else data = await locked(() => saveRun(sourceId, String(flags.name)));
     } else if (command === 'screenshot') {
       const url = webUrl(target);
       const { workspacePath } = await import('./oneOff.js');
@@ -250,6 +293,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const { hasModelKey, DEFAULT_MODEL } = await import('./llm.js');
       const model = selectedModel(DEFAULT_MODEL);
       if (!hasModelKey()) throw new Error('model credential missing; run schwifly setup --models <provider/model> --key-stdin');
+      if (!flags.foreground) {
+        const args = ['run', instruction, '--url', url, '--model', model, '--max-steps', String(maxSteps)];
+        if (flags.save) args.push('--save', String(flags.save));
+        if (flags.screenshots) args.push('--screenshots');
+        if (flags.visible) args.push('--visible');
+        output((await import('./background.js')).startBackground(args), json);
+        return 0;
+      }
+      process.stderr.write('Checking the app, then verifying the captured actions in a fresh browser.\n');
       const record = await locked(() => oneOff({ instruction, url, model, maxSteps, save: flags.save as string | undefined, screenshots: flags.screenshots === true, visible: flags.visible === true }));
       code = record.status === 'certified' ? 0 : 1;
       data = { id: record.id, status: record.status, ...(record.reason ? { reason: record.reason } : {}), ...(record.saved ? { saved: record.saved } : {}), artifacts: record.artifacts,
@@ -264,10 +316,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (existsSync('.env')) process.loadEnvFile('.env');
       const legacyArgs = [command!, ...input.positionals];
       for (const [name, value] of Object.entries(flags)) {
-        if (['root', 'full', 'help', 'version', 'model'].includes(name)) continue;
+        if (['root', 'full', 'help', 'version', 'model', 'foreground'].includes(name)) continue;
         if (name === 'json' && !['run', 'suite', 'attempt', 'rebuild'].includes(command!)) continue;
+        if (name === 'workers') { legacyArgs.push(`--workers=${value}`); continue; }
         if (value === true) legacyArgs.push(`--${name}`);
         else if (typeof value === 'string') legacyArgs.push(`--${name}`, value);
+      }
+      if (['run', 'suite'].includes(command!) && !flags.foreground) {
+        output((await import('./background.js')).startBackground(legacyArgs.filter(arg => arg !== '--json')), json);
+        return 0;
       }
       const result = await locked(async () => (await import('./legacyCli.js')).legacyCommand(legacyArgs));
       code = result.code;
@@ -278,7 +335,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
     if ((!command || command === 'context') && data && typeof data === 'object' && 'help' in data && Array.isArray(data.help)) data.help = data.help.map(scoped);
-    output(data, json);
+    output(flags.full || json ? data : conciseResult(data), json);
     return code;
   } catch (error) {
     output({ error: error instanceof Error ? error.message : 'operation failed', help: error instanceof UsageError ? help(command) : `schwifly ${command ?? 'setup'} --help` }, json);

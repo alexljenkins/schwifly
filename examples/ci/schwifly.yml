@@ -26,7 +26,7 @@ jobs:
           done
           exit 1
       # For authenticated apps, capture login with the app's script before this step.
-      - run: pnpm exec schwifly suite stories --json
+      - run: pnpm exec schwifly suite stories --foreground --json
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SCHWIFLY_MODEL: google/gemini-3.8-flash

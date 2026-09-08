@@ -14,7 +14,10 @@ The package must be available from the configured registry. For an unpublished c
 - Certification checks the outcome in a fresh browser with model healing disabled. A model claim is not proof.
 - Instructions may be brief or detailed. State the expected visible text with `<expect>text</expect>` when possible.
 - Screenshots mask form values, known secret text, and data-private regions. Inspect image files with an image tool.
-- Each run starts a fresh session. Configure app reset and login in schwifly.config.ts when the test needs them.
+- Instruction runs start in the background. Use the returned status/show commands and log path. --foreground waits.
+- Use session start, then session ask for a persistent tester. session reset wipes its context. session stop closes it.
+- session baseline marks the last check. session compare repeats it. session save certifies it in a fresh browser.
+- Standalone runs start a fresh session. Configure app reset and login in schwifly.config.ts when the test needs them.
 - Discovery and certification both act on the app. Run only within the user-authorized target and action scope.
 - After a failed run, inspect `schwifly show <id>`, correct the instruction or app, then run again. Stop when the requested outcome passes.
 - Setup reads keys through `--key-stdin` and stores them in the OS credential store. Use a secret manager pipe, not literal keys.
@@ -28,6 +31,12 @@ pnpm dlx schwifly run --instruction-file <instructions.md> --url <url> --screens
 pnpm dlx schwifly show <id>
 pnpm dlx schwifly save <id> --name <name>
 pnpm dlx schwifly run workflows/<name>.spec.ts
+pnpm dlx schwifly session start --url <url>
+pnpm dlx schwifly session ask <session-id> "Click Go. <expect>Done</expect>" --element button
+pnpm dlx schwifly session ask <session-id> "Try the button again"
+pnpm dlx schwifly session baseline <session-id>
+pnpm dlx schwifly session compare <session-id>
+pnpm dlx schwifly session save <session-id> --name <name>
 ```
 
 Run a command with `--help` for its complete flags and examples.

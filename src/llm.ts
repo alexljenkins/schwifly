@@ -24,10 +24,9 @@ function providerError(error: unknown): ProviderError {
 }
 
 /** One model configuration covers observe, extract, and the DOM agent. No automatic retries. */
-export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderError) => void): ModelObject {
+export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderError) => void, budget = { calls: 0 }): ModelObject {
   const modelId = selectedModel(DEFAULT_MODEL);
   const apiKey = modelCredential();
-  let calls = 0;
   const middleware: NonNullable<ModelObject['middleware']> = {
     transformParams: async ({ params }) => ({
       ...params,
@@ -40,11 +39,11 @@ export function sessionModel(signal?: AbortSignal, onError?: (error: ProviderErr
     wrapGenerate: async ({ doGenerate, params }) => {
       const fail = (message: string): never => { const error = new ProviderError(message); onError?.(error); throw error; };
       if (!apiKey || process.env.SCHWIFLY_NO_HEAL === '1') fail('model calls are disabled');
-      if (++calls > 36) fail('model call limit reached');
+      if (++budget.calls > 36) fail('model call limit reached');
       const log = process.env.SCHWIFLY_MODEL_LOG;
       if (log) {
         mkdirSync(dirname(log), { recursive: true });
-        appendFileSync(log, JSON.stringify({ model: modelId, call: calls }) + '\n');
+        appendFileSync(log, JSON.stringify({ model: modelId, call: budget.calls }) + '\n');
       }
       try { return await bounded(Promise.resolve(doGenerate()), params.abortSignal!); }
       catch (error) {

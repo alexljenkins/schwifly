@@ -31,6 +31,8 @@ jobs:
           include-hidden-files: true
           retention-days: 7
           path: |
+            .schwifly/verification.log
+            .schwifly/last-run.json
             .schwifly/results/
             .schwifly/evidence/
             .schwifly/repair-diffs/

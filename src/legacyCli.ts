@@ -167,7 +167,7 @@ async function runWorkflows(args: string[]): Promise<number> {
     if (input.positionals.length !== 1) throw new Error('run needs exactly one story file');
     const { runStory } = await import('./storyAttempt.js');
     const result = await runStory({ file: input.positionals[0] });
-    if (input.flags.json) say(JSON.stringify(result.report));
+    if (input.flags.json) { facts.push(result.report); say(JSON.stringify(result.report)); }
     else reportStoryCommand('run', result);
     return result.ok ? 0 : 1;
   }
@@ -183,13 +183,12 @@ async function runWorkflows(args: string[]): Promise<number> {
     if (playwrightArgs.some(arg => arg !== '--workers=1' && arg !== '--json')) {
       throw new Error('story-backed runs accept --json and --workers=1; use suite for story selection');
     }
-    if (files.length > 1 && playwrightArgs.includes('--json')) throw new Error('use schwifly suite --json for aggregate results');
     let failed = false;
     for (const item of backed) {
       if (item.error) {
         const { reportOperation } = await import('./result.js');
         const result = await reportOperation({ file: item.file }, async () => { throw item.error; });
-        if (playwrightArgs.includes('--json')) say(JSON.stringify(result.report));
+        if (playwrightArgs.includes('--json')) { facts.push(result.report); say(JSON.stringify(result.report)); }
         else reportStoryCommand('run', result);
         failed = true;
         continue;

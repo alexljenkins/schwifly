@@ -6,6 +6,7 @@ import { basename, dirname } from 'node:path';
 import type { Page } from '@playwright/test';
 import { emit, type EmitAssertion, type EmitStep } from './emit.js';
 import { stableSelector } from './generate.js';
+import type { SharedSession } from './sharedCdp.js';
 import { openConfiguredSession } from './session.js';
 import { redact } from './secrets.js';
 import { clearRunLogs, readRunLogs, STEP_LOG } from './runLogs.js';
@@ -118,6 +119,7 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
   if (opts.out && existsSync(opts.out)) return { ok: false, reason: redact(`output already exists: ${opts.out}`) };
 
   // 1. Resolve the outcome contract BEFORE trusting anything the attempt produces.
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Resolving the expected outcome.');
   const resolve = opts.resolveContract ?? proposeContractLive;
   const contract = contractFromTicket(opts.ticket) ?? (await resolve(opts.ticket, opts.url, visible));
   if (!contract) {
@@ -126,6 +128,7 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
 
   // 2. Bounded, same-origin attempt. Discovery observes the browser; it does not interview the agent.
   const discover = opts.discover ?? liveDiscover;
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Exploring the app. Browser actions stay in the progress log.');
   const discovery = await discover({ ticket: opts.ticket, url: opts.url, maxSteps, visible, contract, onCheckpoint: opts.onCheckpoint });
 
   // 3. The contract is the judge. A lying agent dies here, before anything is emitted or saved.
@@ -151,6 +154,7 @@ export async function attemptFlow(opts: AttemptOptions): Promise<AttemptResult> 
   const candidate = opts.candidateFile ?? candidatePath();
   write(candidate, source, true);
   const replay = opts.replay ?? replayAgentFree;
+  if (process.env.SCHWIFLY_CLI === '1') console.error('Replaying captured actions in a fresh browser with model repair disabled.');
   const green = await replay(candidate);
   if (!green) {
     // Candidate stays on disk as redacted debug evidence; no workflow is created or overwritten.
@@ -290,11 +294,21 @@ async function captureLive<T>(
   checkpoint?: DiscoveryRequest['onCheckpoint'],
 ): Promise<{ actions: CapturedAction[]; value: T }> {
   const session = await open();
+  try {
+    await guardOrigin(session.page, url);
+    await session.page.goto(url);
+    return await captureSession(session, maxSteps, visible, run, checkpoint);
+  } finally { await session.close(); }
+}
+
+export async function captureSession<T>(
+  session: SharedSession, maxSteps: number, visible: boolean,
+  run: (page: Page, execute: (instruction: string) => Promise<string>) => Promise<T>,
+  checkpoint?: DiscoveryRequest['onCheckpoint'],
+): Promise<{ actions: CapturedAction[]; value: T }> {
   const actions: CapturedAction[] = [];
   try {
     const { page, stagehand } = session;
-    await guardOrigin(page, url);
-    await page.goto(url);
     await checkpoint?.(page, 'start');
 
     let pending: CapturedAction[] = [];
@@ -351,15 +365,13 @@ async function captureLive<T>(
   } catch (cause) {
     await checkpoint?.(session.page, 'failure').catch(() => {});
     throw Object.assign(new Error(redact(String(cause)), { cause }), { name: 'ExplorationError', actions: redact(actions) });
-  } finally {
-    await session.close();
   }
 }
 
 // Same-origin at the BROWSER, not in the prompt: any cross-origin navigation is aborted, so the
 // bounded attempt physically cannot wander off the app under test. Cross-origin subresources
 // (fonts, CDN scripts) are left alone — blocking those breaks rendering without bounding anything.
-async function guardOrigin(page: Page, url: string): Promise<void> {
+export async function guardOrigin(page: Page, url: string): Promise<void> {
   const origin = new URL(url).origin;
   await page.context().route('**/*', (route) => {
     const req = route.request();
@@ -376,7 +388,7 @@ async function guardOrigin(page: Page, url: string): Promise<void> {
 
 // The contract, checked against the page the agent actually left behind. Each satisfied check
 // becomes an expectText assertion on a stable locator; each unsatisfied one fails the run.
-async function bindContract(
+export async function bindContract(
   page: Page,
   contract: OutcomeContract,
 ): Promise<{ assertions: EmitAssertion[]; unmet: string[] }> {

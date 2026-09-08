@@ -35,6 +35,7 @@ try {
 } finally { await login.close(); }
 
 async function cli(args, expectedCode = 0) {
+  if (['run', 'suite', 'save'].includes(args[0])) args = [...args, '--foreground'];
   const child = spawn('pnpm', ['exec', 'schwifly', ...args], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   let errors = '';

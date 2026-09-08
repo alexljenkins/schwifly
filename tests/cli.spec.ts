@@ -8,6 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 
 function runCli(args: string[]): ReturnType<typeof spawnSync> {
+  if (args[0] === 'run') args = [...args, '--foreground'];
   const base = join(root, '.schwifly');
   mkdirSync(base, { recursive: true });
   const cwd = mkdtempSync(join(base, 'cli-test-'));
@@ -143,7 +144,7 @@ test('an invalid story marker reports a contract failure and permits other workf
 import { writeFileSync } from 'node:fs';
 test('selected legacy workflow', () => { writeFileSync('executed.txt', 'yes'); });
 `);
-  const cli = (args: string[]) => spawnSync(tsx, [join(root, 'src', 'cli.ts'), '--root', cwd, ...args], { cwd: root, encoding: 'utf8' });
+  const cli = (args: string[]) => spawnSync(tsx, [join(root, 'src', 'cli.ts'), '--root', cwd, ...args, '--foreground'], { cwd: root, encoding: 'utf8' });
   try {
     for (const marker of ['"missing.story.yaml"', '{}', '']) {
       writeFileSync(broken, source.replace('"missing.story.yaml"', marker));
@@ -152,7 +153,7 @@ test('selected legacy workflow', () => { writeFileSync('executed.txt', 'yes'); }
       expect(JSON.parse(String(result.stdout)).failure.kind).toBe('invalid_contract');
     }
     writeFileSync(broken, source);
-    const directory = cli(['run', 'workflows/']);
+    const directory = cli(['run', 'workflows/', '--workers=1']);
     expect(directory.status, output(directory)).toBe(1);
     expect(existsSync(join(cwd, 'executed.txt')), output(directory)).toBe(true);
     expect(readFileSync(broken, 'utf8')).toBe(source);
