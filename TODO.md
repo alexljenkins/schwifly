@@ -244,14 +244,17 @@ loop: outcome contract → bounded same-origin agent attempt → observed action
   `@browserbasehq/stagehand` pinned to `3.7.3` and `@playwright/test` to `1.63.0` — the versions the
   evidence-stream shapes above were observed against.
 - **Stagehand 4.x is rejected, not deferred (checked at 4.0.2, 2026-09-08).** v4 is a rewrite, not an
-  upgrade. It drops Playwright as a dependency and drives its own RPC `Page` over `@browserbasehq/sdk`,
-  so `stagehand.connectURL()` is gone and `sharedCdp.ts` has no CDP endpoint to hand
-  `chromium.connectOverCDP()`. `stagehand.agent()` is removed from the SDK with no replacement package,
-  which deletes the discovery half of `schwifly attempt`. `new Stagehand()` is private (use
-  `Stagehand.create()`), `observe()`/`extract()` return a `{ data, metadata }` envelope instead of an
-  array, and `ModelConfiguration` is unexported. That is 24 type errors across 8 files and a lost
-  feature, for no gain we need. **Revisit when** v4 ships an agent API that emits real Playwright
-  selectors, or exposes a CDP URL for `connectOverCDP()`.
+  upgrade: it drops Playwright entirely and drives its own `Page` over a bundled Chrome extension.
+  The blocker is that `stagehand.agent()` is removed from the SDK with no replacement package, which
+  deletes the discovery half of `schwifly attempt` — there is nothing left to hand the ticket to, and
+  `onEvidence` (the only source of real Playwright selectors) goes with it. Secondary breaks: 24 type
+  errors across 8 files, `connectURL()` gone (a shared browser is still reachable via
+  `localBrowser.launch({ port })`, but Stagehand must own the launch and the browser must carry its
+  extension, which headless shell will not load), private constructor, `{ data, metadata }` envelopes
+  from `observe()`/`extract()`, unexported `ModelConfiguration`. The real gain we forgo is a much
+  smaller install: 229 transitive packages drop to 49. **Revisit when** v4 ships an agent API that
+  emits real Playwright selectors per step, or when `attempt` discovers flows some other way.
+  Full comparison: [docs/stagehand-3-vs-4.md](./docs/stagehand-3-vs-4.md).
 
 **Verified:** `pnpm run verify` green key-free · typecheck clean ·
 generated spec typechecks (`tests/attempt.spec.ts`) · live round trip GREEN against
