@@ -61,7 +61,7 @@ Complete these in order, with focused checks and a commit at each checkpoint.
 ## OpenRouter decision
 
 Use Stagehand's existing model configuration first. A new general-purpose adapter is unnecessary unless the compatibility check fails.
-Stagehand 3.7.1 already depends on Vercel AI SDK 5 and supports a custom endpoint with explicit chat-completions routing.
+Stagehand 3.7.3 already depends on Vercel AI SDK 5 and supports a custom endpoint with explicit chat-completions routing.
 OpenRouter documents an [OpenAI-compatible endpoint](https://openrouter.ai/docs/quickstart).
 
 Expose `OPENROUTER_API_KEY` and retain `SCHWIFLY_MODEL` for the OpenRouter model ID.

@@ -32,7 +32,7 @@ The integration is more than changing a browser executable:
 
 - `src/sharedCdp.ts` lets Stagehand own Chromium, then attaches Playwright over CDP so both operate
   on the exact same DOM.
-- `src/attempt.ts` depends on Stagehand 3.7.1's experimental evidence callbacks and their observed
+- `src/attempt.ts` depends on Stagehand 3.7.3's experimental evidence callbacks and their observed
   Playwright selectors. These callbacks are required to produce replayable workflows.
 - The candidate is certified in a fresh Playwright process with the agent and healing disabled.
 - Generated locators remain plain strings so a heal is a one-line source diff.

@@ -232,7 +232,7 @@ loop: outcome contract → bounded same-origin agent attempt → observed action
   failure and continues by design, so a spec whose every step failed still exits 0 — gating on the
   exit code alone certified an empty workflow. `replayGreen()` requires ≥1 step and every step `ok`
   (a `healed` step also fails the gate, since healing is disabled for certification).
-- **Stagehand specifics (3.7.1, pinned).** Evidence callbacks need `experimental: true` +
+- **Stagehand specifics (3.7.3, pinned).** Evidence callbacks need `experimental: true` +
   `disableAPI: true` on the constructor (`openSharedSession({ evidence: true })`). Tool results are
   wrapped in an AI SDK envelope: the native `playwrightArguments` live at `result.output`, not
   `result`. `mode: 'dom'` must be passed explicitly — under `experimental` the agent otherwise
@@ -241,8 +241,17 @@ loop: outcome contract → bounded same-origin agent attempt → observed action
   context route; cross-origin subresources (fonts/CDN) are allowed, since blocking those breaks
   rendering without bounding anything.
 - **Package manager resolved:** `package-lock.json` deleted, `packageManager: pnpm@11.5.3` declared,
-  `@browserbasehq/stagehand` pinned to `3.7.1` and `@playwright/test` to `1.61.1` — the versions the
+  `@browserbasehq/stagehand` pinned to `3.7.3` and `@playwright/test` to `1.63.0` — the versions the
   evidence-stream shapes above were observed against.
+- **Stagehand 4.x is rejected, not deferred (checked at 4.0.2, 2026-09-08).** v4 is a rewrite, not an
+  upgrade. It drops Playwright as a dependency and drives its own RPC `Page` over `@browserbasehq/sdk`,
+  so `stagehand.connectURL()` is gone and `sharedCdp.ts` has no CDP endpoint to hand
+  `chromium.connectOverCDP()`. `stagehand.agent()` is removed from the SDK with no replacement package,
+  which deletes the discovery half of `schwifly attempt`. `new Stagehand()` is private (use
+  `Stagehand.create()`), `observe()`/`extract()` return a `{ data, metadata }` envelope instead of an
+  array, and `ModelConfiguration` is unexported. That is 24 type errors across 8 files and a lost
+  feature, for no gain we need. **Revisit when** v4 ships an agent API that emits real Playwright
+  selectors, or exposes a CDP URL for `connectOverCDP()`.
 
 **Verified:** `pnpm run verify` green key-free · typecheck clean ·
 generated spec typechecks (`tests/attempt.spec.ts`) · live round trip GREEN against

@@ -23,7 +23,7 @@ Browser commands run serially. Child runners force 1 worker.
 - Key-free transport tests verify HTTP 401, 402, and 429 each make 1 request and return a safe error.
 - Each model request has a 30-second deadline. Each session allows at most 36 calls with no automatic provider retries.
 - Typecheck and 7 focused checks pass. Live checks require `SCHWIFLY_LIVE=1` and stay outside key-free verification.
-- Installed versions: Stagehand 3.7.1, Playwright 1.61.1, TypeScript 5.9.3, tsx 4.23.1.
+- Installed versions: Stagehand 3.7.3, Playwright 1.63.0, TypeScript 5.9.3, tsx 4.23.1.
 - Configuration follows [OpenRouter's chat endpoint](https://openrouter.ai/docs/quickstart)
   and [Stagehand model configuration](https://docs.stagehand.dev/v3/configuration/models).
 
