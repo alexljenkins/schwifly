@@ -7,6 +7,17 @@ This is a strategic assessment, not a completed migration or runtime benchmark.
 V4 can support the requested product flows. Whether replacing the entire browser implementation pays off remains unproven.
 The product should own expected outcomes, recorded execution, and repair decisions. Stagehand should provide browser operations and optional AI assistance.
 
+## Measured prototype result
+
+The Stagehand 4.1 external-agent prototype passed every required scenario in 3 runs.
+Against the matched Stagehand 3.7 baseline, discovery was 61% faster and used 69% fewer model calls.
+Discovery cost fell from $0.10617 to $0.00939 across 3 runs.
+Repair was 21% faster and cost 74% less, but its slowest run still took 105.6 seconds.
+Both engines caught every seeded defect and replayed unchanged routes without a model.
+
+See [the comparison table](bench/stagehand-3.7-vs-stagehand-4.md) and
+[the v4 result data](bench/stagehand-4-results.json).
+
 ## What the earlier assessment misses
 
 The [migration guide](https://docs.stagehand.dev/v4/migrations/v3) explicitly replaces the built-in agent with 2 approaches:
@@ -160,5 +171,5 @@ Include first-run discovery, repeated development checks, unchanged CI replay, a
 | Fail browser startup or model access. | The report identifies infrastructure failure without claiming an application defect. |
 
 Record median and tail latency, model calls, token cost, intermittent failures, repair success, and missed seeded defects.
-Agree on a worthwhile improvement threshold before the experiment.
-No runtime experiment in this assessment establishes those numbers yet.
+The first measured prototype now establishes these numbers for one controlled local flow.
+Wider flows and native v4 repair remain unmeasured.

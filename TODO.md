@@ -243,18 +243,14 @@ loop: outcome contract → bounded same-origin agent attempt → observed action
 - **Package manager resolved:** `package-lock.json` deleted, `packageManager: pnpm@11.5.3` declared,
   `@browserbasehq/stagehand` pinned to `3.7.3` and `@playwright/test` to `1.63.0` — the versions the
   evidence-stream shapes above were observed against.
-- **Stagehand 4.x is rejected, not deferred (checked at 4.0.2, 2026-09-08).** v4 is a rewrite, not an
-  upgrade: it drops Playwright entirely and drives its own `Page` over a bundled Chrome extension.
-  The blocker is that `stagehand.agent()` is removed from the SDK with no replacement package, which
-  deletes the discovery half of `schwifly attempt` — there is nothing left to hand the ticket to, and
-  `onEvidence` (the only source of real Playwright selectors) goes with it. Secondary breaks: 24 type
-  errors across 8 files, `connectURL()` gone (a shared browser is still reachable via
-  `localBrowser.launch({ port })`, but Stagehand must own the launch and the browser must carry its
-  extension, which headless shell will not load), private constructor, `{ data, metadata }` envelopes
-  from `observe()`/`extract()`, unexported `ModelConfiguration`. The real gain we forgo is a much
-  smaller install: 229 transitive packages drop to 49. **Revisit when** v4 ships an agent API that
-  emits real Playwright selectors per step, or when `attempt` discovers flows some other way.
-  Full comparison: [docs/stagehand-3-vs-4.md](./docs/stagehand-3-vs-4.md).
+- **Stagehand 4.1 is benchmarked, not shipped.** The development-only v4 adapter implements a bounded
+  external agent with Stagehand snapshots and browser operations. It records selectors from browser
+  facts, then keeps the existing Playwright replay and proof gate. Across 3 matched runs, discovery
+  was 61% faster, used 69% fewer model calls, and cost 91% less. Repair was 21% faster and cost 74%
+  less, but its 105.6-second slowest run remains close to the session limit. Both engines caught all
+  seeded defects. The package stays on v3 because wider flows, persistent sessions, and native v4
+  repair remain unmeasured. See [the measured comparison](./docs/bench/stagehand-3.7-vs-stagehand-4.md)
+  and [the product assessment](./docs/stagehand-v4-product-assessment.md).
 
 **Verified:** `pnpm run verify` green key-free · typecheck clean ·
 generated spec typechecks (`tests/attempt.spec.ts`) · live round trip GREEN against

@@ -15,6 +15,7 @@ export interface ScenarioSummary {
   medianModelCalls: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  medianCostUsd: number | null;
   totalCostUsd: number | null;
   medianActions: number;
   repairs: number;
@@ -26,6 +27,13 @@ export function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = sorted.length >> 1;
   return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+function medianExact(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function outcome(measurement: BenchMeasurement): string {
@@ -54,6 +62,7 @@ export function summarize(run: BenchRun): ScenarioSummary[] {
       medianModelCalls: median(group.map((measurement) => measurement.model.calls)),
       totalInputTokens: group.reduce((sum, measurement) => sum + measurement.model.inputTokens, 0),
       totalOutputTokens: group.reduce((sum, measurement) => sum + measurement.model.outputTokens, 0),
+      medianCostUsd: costs.some((cost) => cost === null) ? null : medianExact(costs as number[]),
       totalCostUsd: costs.some((cost) => cost === null) ? null : costs.reduce<number>((sum, cost) => sum + (cost ?? 0), 0),
       medianActions: median(group.map((measurement) => measurement.actions)),
       repairs: group.filter((measurement) => measurement.repaired).length,
@@ -91,7 +100,7 @@ export function renderRun(run: BenchRun): string {
     '',
     '## Results',
     '',
-    row(['Scenario', 'Met', 'Median', 'Slowest', 'Model calls', 'In tokens', 'Out tokens', 'Cost', 'Actions', 'Outcome']),
+    row(['Scenario', 'Met', 'Median', 'Slowest', 'Median model calls', 'Total in tokens', 'Total out tokens', 'Total cost', 'Actions', 'Outcome']),
     row(['---', '---:', '---:', '---:', '---:', '---:', '---:', '---:', '---:', '---']),
     ...summaries.map((summary) => row([
       summary.scenario,
@@ -136,11 +145,10 @@ export function renderRun(run: BenchRun): string {
   return lines.join('\n');
 }
 
-const delta = (before: number, after: number, format: (value: number) => string): string => {
-  if (!before && !after) return '0';
-  const change = before ? `${(((after - before) / before) * 100).toFixed(0)}%` : 'new';
-  return `${format(before)} to ${format(after)} (${change})`;
-};
+function versionLabel(run: BenchRun): string {
+  const version = run.engine.versions['@browserbasehq/stagehand'] ?? Object.values(run.engine.versions)[0] ?? run.engine.id;
+  return `v${version.split('.').slice(0, 2).join('.')}`;
+}
 
 /**
  * The comparison a Stagehand v4 branch produces. `baseline` is the older engine.
@@ -149,7 +157,9 @@ const delta = (before: number, after: number, format: (value: number) => string)
 export function renderComparison(baseline: BenchRun, candidate: BenchRun): string {
   const left = new Map(summarize(baseline).map((summary) => [summary.scenario, summary]));
   const right = new Map(summarize(candidate).map((summary) => [summary.scenario, summary]));
-  const shared = [...left.keys()].filter((id) => right.has(id));
+  const scenarios = [...new Set([...left.keys(), ...right.keys()])];
+  const baselineLabel = versionLabel(baseline);
+  const candidateLabel = versionLabel(candidate);
   const warnings = [
     ...(baseline.model === candidate.model ? [] : [`different models: ${baseline.model} versus ${candidate.model}`]),
     ...(baseline.host.platform === candidate.host.platform ? [] : ['different host platforms']),
@@ -157,23 +167,70 @@ export function renderComparison(baseline: BenchRun, candidate: BenchRun): strin
     ...([...left.keys()].filter((id) => !right.has(id)).map((id) => `${id} ran only on ${baseline.engine.id}`)),
   ];
 
+  const measurements = (run: BenchRun, scenario: string, label: string): string[] => {
+    const group = run.measurements.filter((measurement) => measurement.scenario === scenario);
+    const summary = summarize(run).find((item) => item.scenario === scenario);
+    if (!summary) return [];
+    return [
+      ...group.map((measurement) => row([
+        label,
+        measurement.repetition,
+        seconds(measurement.durationMs),
+        measurement.model.calls,
+        usd(measurement.model.costUsd),
+        measurement.actions,
+        measurement.met ? 'yes' : 'no',
+        outcome(measurement),
+      ])),
+      row([
+        label,
+        'median',
+        seconds(summary.medianMs),
+        summary.medianModelCalls,
+        usd(summary.medianCostUsd),
+        summary.medianActions,
+        `${summary.met}/${summary.runs}`,
+        summary.outcomes.join(', '),
+      ]),
+    ];
+  };
+
   return [
     `# ${baseline.engine.label} versus ${candidate.engine.label}`,
     '',
     `Baseline ${baseline.engine.id} finished ${baseline.finishedAt}. Candidate ${candidate.engine.id} finished ${candidate.finishedAt}.`,
     '',
-    row(['Scenario', 'Median time', 'Model calls', 'Cost', 'Actions', 'Evidence met']),
-    row(['---', '---', '---', '---', '---', '---']),
-    ...shared.map((id) => {
-      const before = left.get(id)!;
-      const after = right.get(id)!;
+    ...scenarios.flatMap((id) => {
+      const summary = left.get(id) ?? right.get(id)!;
+      return [
+        `## ${id}`,
+        '',
+        summary.title,
+        '',
+        row(['Engine', 'Run', 'Time', 'Model calls', 'Cost', 'Actions', 'Pass', 'Outcome']),
+        row(['---', '---:', '---:', '---:', '---:', '---:', '---:', '---']),
+        ...measurements(baseline, id, baselineLabel),
+        ...measurements(candidate, id, candidateLabel),
+        '',
+      ];
+    }),
+    '## Median summary',
+    '',
+    row(['Scenario', `${baselineLabel} time`, `${candidateLabel} time`, `${baselineLabel} model calls`, `${candidateLabel} model calls`, `${baselineLabel} cost`, `${candidateLabel} cost`, `${baselineLabel} pass`, `${candidateLabel} pass`]),
+    row(['---', '---:', '---:', '---:', '---:', '---:', '---:', '---:', '---:']),
+    ...scenarios.map((id) => {
+      const before = left.get(id);
+      const after = right.get(id);
       return row([
         id,
-        delta(before.medianMs, after.medianMs, seconds),
-        delta(before.medianModelCalls, after.medianModelCalls, String),
-        `${usd(before.totalCostUsd)} to ${usd(after.totalCostUsd)}`,
-        delta(before.medianActions, after.medianActions, String),
-        `${before.met}/${before.runs} to ${after.met}/${after.runs}`,
+        before ? seconds(before.medianMs) : 'n/a',
+        after ? seconds(after.medianMs) : 'n/a',
+        before?.medianModelCalls ?? 'n/a',
+        after?.medianModelCalls ?? 'n/a',
+        before ? usd(before.medianCostUsd) : 'n/a',
+        after ? usd(after.medianCostUsd) : 'n/a',
+        before ? `${before.met}/${before.runs}` : 'n/a',
+        after ? `${after.met}/${after.runs}` : 'n/a',
       ]);
     }),
     '',

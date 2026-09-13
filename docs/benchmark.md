@@ -12,6 +12,7 @@ It is a development tool. Nothing here ships in the package.
 ```bash
 pnpm run bench -- --help
 pnpm run bench -- --repeat 3
+pnpm run bench -- --engine stagehand-4 --repeat 3
 pnpm run bench -- --repeat 1 --scenario discover --scenario replay-unchanged
 ```
 
@@ -27,6 +28,9 @@ Compare two saved runs:
 ```bash
 pnpm run bench -- compare docs/bench/stagehand-3.7-results.json docs/bench/stagehand-4-results.json
 ```
+
+The comparison gives each scenario its own table. It shows every run, then one median row per engine.
+The last table places both engine medians side by side.
 
 ## What it measures
 
@@ -61,30 +65,26 @@ server, so a success message alone never satisfies it. `tasks.listed` polls the 
 a slow render passes and a missing render fails. Both demand an exact count, which is what
 catches the duplicated write.
 
-## Adding a Stagehand v4 engine
+## Stagehand v4 engine
 
-`bench/types.ts` defines `BenchEngine`. A v4 branch adds one file next to
-`bench/engines/stagehand37.ts` and registers it in `bench/engines/index.ts`. Nothing else in
-`bench/` changes: the scenarios, the app, the metrics, and both reports stay as they are.
+The v4 benchmark uses `stagehand-v4`, a development-only alias pinned to Stagehand 4.1.0.
+The shipped package remains on Stagehand 3.7.3. Running the v4 benchmark needs Node 22.18 or newer.
 
-```ts
-export const stagehand4: BenchEngine = {
-  id: 'stagehand-4',
-  label: 'Stagehand 4 tester agent, Playwright replay',
-  versions: () => ({ '@browserbasehq/stagehand': '4.x' }),
-  discover: async (request) => { /* observe, act, record concrete actions */ },
-  // Set replay and repair only when v4 drives them itself. Left unset, Schwifly's Playwright
-  // gate runs, which is the assessment's first implementation choice.
-};
-```
+`bench/engines/stagehand4.ts` implements the external-agent approach from the v4 migration guide.
+Each bounded step sends the current v4 accessibility snapshot to the selected OpenRouter model.
+The model chooses `click`, `fill`, or `done`, and Stagehand executes the grounded XPath.
+The adapter records a role-and-name selector derived from the snapshot, never from model prose.
 
-`discover` must return the actions it really executed, with a Playwright-usable selector on each,
-plus one proof record per clause. Anything the model claims about its own success is not evidence
-and must not reach the returned records.
+Playwright remains the certification and replay gate. Existing generated workflows also retain
+the v3 healing tier, so the repair row measures v4 route discovery plus the current repair path.
+It does not claim to measure a native v4 repair implementation.
 
 Run both engines on the same host, the same model, and the same scenarios, then compare. The
 comparison report prints a "Not like for like" section when the two runs disagree on model or
 platform. Do not delete that section. It is the difference between evidence and a press release.
+
+The measured 3-run comparison is in
+[`docs/bench/stagehand-3.7-vs-stagehand-4.md`](bench/stagehand-3.7-vs-stagehand-4.md).
 
 ## What this harness does not cover
 

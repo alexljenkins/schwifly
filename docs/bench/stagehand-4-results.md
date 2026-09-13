@@ -1,32 +1,32 @@
-# Benchmark: Stagehand 3.7 DOM agent, Playwright replay
+# Benchmark: Stagehand 4.1 external tester agent, Playwright replay
 
-Generated 2026-09-08T04:15:24.153Z. Every scenario ran 3 times, one at a time.
+Generated 2026-09-13T03:21:07.889Z. Every scenario ran 3 times, one at a time.
 
 ## Setup
 
 | Field | Value |
 | --- | --- |
-| Engine | stagehand-3.7 |
-| @browserbasehq/stagehand | 3.7.3 |
+| Engine | stagehand-4 |
+| @browserbasehq/stagehand | 4.1.0 |
 | @playwright/test | 1.63.0 |
 | Model | google/gemini-3.8-flash |
 | Price | $0.750 in / $3.750 out per million tokens |
 | Host | linux x64, 6 CPUs, Node v22.22.1 |
-| Started | 2026-09-08T04:03:19.363Z |
+| Started | 2026-09-13T03:10:54.339Z |
 
 ## Results
 
 | Scenario | Met | Median | Slowest | Median model calls | Total in tokens | Total out tokens | Total cost | Actions | Outcome |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| discover | 3/3 | 49.0s | 49.8s | 13 | 119910 | 4330 | $0.10617 | 3 | certified |
-| replay-unchanged | 3/3 | 5.7s | 5.8s | 0 | 0 | 0 | $0.00000 | 3 | certified |
-| repair-moved-control | 3/3 | 118.3s | 123.5s | 16 | 100225 | 6023 | $0.09775 | 3 | repaired:route, repaired:element |
-| defect-persistence | 3/3 | 13.6s | 13.8s | 0 | 0 | 0 | $0.00000 | 3 | failed:unmet_outcome |
-| defect-duplicate | 3/3 | 13.7s | 13.7s | 0 | 0 | 0 | $0.00000 | 3 | failed:unmet_outcome |
-| async-update | 3/3 | 7.7s | 7.8s | 0 | 0 | 0 | $0.00000 | 3 | certified |
-| infra-model-offline | 3/3 | 56.9s | 57.5s | 3 | 0 | 0 | $0.00000 | 3 | failed:provider_failure |
+| discover | 3/3 | 19.4s | 22.6s | 4 | 5022 | 1500 | $0.00939 | 3 | certified |
+| replay-unchanged | 3/3 | 5.7s | 5.7s | 0 | 0 | 0 | $0.00000 | 3 | certified |
+| repair-moved-control | 3/3 | 93.7s | 105.6s | 7 | 8095 | 5088 | $0.02515 | 3 | repaired:route, repaired:element |
+| defect-persistence | 3/3 | 13.6s | 13.9s | 0 | 0 | 0 | $0.00000 | 3 | failed:unmet_outcome |
+| defect-duplicate | 3/3 | 13.6s | 13.7s | 0 | 0 | 0 | $0.00000 | 3 | failed:unmet_outcome |
+| async-update | 3/3 | 7.6s | 7.7s | 0 | 0 | 0 | $0.00000 | 3 | certified |
+| infra-model-offline | 3/3 | 56.7s | 58.4s | 3 | 0 | 0 | $0.00000 | 3 | failed:provider_failure |
 
-Total model cost for this run: $0.20392.
+Total model cost for this run: $0.03454.
 
 ## Required evidence
 

@@ -8,6 +8,7 @@ import { median, renderComparison, renderRun, summarize } from '../bench/report'
 import { selectScenarios, SCENARIOS } from '../bench/scenarios';
 import { runBenchmark } from '../bench/runner';
 import type { BenchEngine, BenchMeasurement, BenchRun } from '../bench/types';
+import { parseBrowserDecision, snapshotDescription, snapshotReplaySelector } from '../bench/engines/stagehand4';
 
 function measurement(overrides: Partial<BenchMeasurement> = {}): BenchMeasurement {
   return {
@@ -86,7 +87,7 @@ test('a run with no price records tokens and leaves cost empty', () => {
   expect(markdown).toContain('## Notes');
 });
 
-test('the comparison reports deltas and refuses to hide a mismatched setup', () => {
+test('the comparison reports every run, engine medians, and a side-by-side summary', () => {
   const baseline = run();
   const candidate = run({
     engine: { id: 'fake-4', label: 'Fake engine 4', versions: { fake: '4.0.0' } },
@@ -94,7 +95,11 @@ test('the comparison reports deltas and refuses to hide a mismatched setup', () 
     measurements: [measurement({ engine: 'fake-4', durationMs: 500, model: { ...measurement().model, calls: 1 } })],
   });
   const markdown = renderComparison(baseline, candidate);
-  expect(markdown).toContain('1.0s to 0.5s (-50%)');
+  expect(markdown).toContain('## discover');
+  expect(markdown).toContain('| v1.0 | 1 | 1.0s | 2 | $0.00100 | 3 | yes | certified |');
+  expect(markdown).toContain('| v4.0 | median | 0.5s | 1 | $0.00100 | 3 | 1/1 | certified |');
+  expect(markdown).toContain('## Median summary');
+  expect(markdown).toContain('| Scenario | v1.0 time | v4.0 time | v1.0 model calls | v4.0 model calls | v1.0 cost | v4.0 cost | v1.0 pass | v4.0 pass |');
   expect(markdown).toContain('## Not like for like');
   expect(markdown).toContain('different models: google/gemini-3.8-flash versus other/model');
 });
@@ -103,6 +108,22 @@ test('scenario selection keeps declaration order so a saved route exists before 
   expect(selectScenarios(['replay-unchanged', 'discover']).map((scenario) => scenario.id)).toEqual(['discover', 'replay-unchanged']);
   expect(selectScenarios()).toEqual(SCENARIOS);
   expect(() => selectScenarios(['nope'])).toThrow(/unknown scenario/);
+});
+
+test('the Stagehand v4 adapter accepts bounded actions and rejects malformed model output', () => {
+  expect(parseBrowserDecision({ decision: 'action', nodeId: '0-5', action: 'click', value: '' }))
+    .toEqual({ decision: 'action', nodeId: '0-5', action: 'click', value: '' });
+  expect(() => parseBrowserDecision({ decision: 'action', nodeId: '0-5', action: 'evaluate', value: '' }))
+    .toThrow(/invalid browser decision/);
+});
+
+test('the Stagehand v4 adapter names actions from browser facts', () => {
+  const tree = '[0-1] RootWebArea\n  [0-5] button: New item\n  [0-6] textbox: Title';
+  expect(snapshotDescription(tree, '0-5')).toBe('New item button');
+  expect(snapshotDescription(tree, '0-6')).toBe('Title textbox');
+  expect(snapshotReplaySelector(tree, '0-5', '/html/body/button')).toBe('role=button[name="New item"i]');
+  expect(snapshotReplaySelector(tree, '0-6', '/html/body/input')).toBe('role=textbox[name="Title"i]');
+  expect(snapshotReplaySelector(tree, 'missing', '/html/body')).toBe('xpath=/html/body');
 });
 
 // The harness end to end in a real browser, with a fake engine instead of a model, so the

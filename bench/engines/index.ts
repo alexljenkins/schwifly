@@ -1,8 +1,8 @@
 import type { BenchEngine } from '../types.js';
 import { stagehand37 } from './stagehand37.js';
+import { stagehand4 } from './stagehand4.js';
 
-// A Stagehand v4 branch adds its engine here and changes nothing else in bench/.
-export const ENGINES: BenchEngine[] = [stagehand37];
+export const ENGINES: BenchEngine[] = [stagehand37, stagehand4];
 
 export function selectEngine(id: string): BenchEngine {
   const engine = ENGINES.find((candidate) => candidate.id === id);
